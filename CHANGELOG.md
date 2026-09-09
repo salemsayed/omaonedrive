@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Fix a panel that could not be closed on Omarchy 4.0. The shell now passes
+  third-party plugins the `PluginBarApi` facade rather than the host `Bar`, and
+  there `centerHoverRevealSuppressed` is readonly — writable only through
+  `setCenterHoverRevealSuppressed()`. The `in` probe still matched the readonly
+  property, so `setCenterHoverRevealSuppressed()` assigned it anyway and threw
+  `TypeError: Cannot assign to read-only property`. Because `close()` called it
+  before `controller.hide()`, the panel stayed mapped and no dismissal route
+  could shut it — Escape, an outside click, the bar button and the IPC methods
+  all funnel through `close()`. Prefer the setter, as the first-party clock and
+  weather panels do, and hide before touching the facade so a future throw
+  cannot pin the panel open again.
+
 ## 1.5.8 - 2026-09-09
 
 - Reveal files through the desktop FileManager1 ShowItems interface instead of launching a hard-coded Nautilus process.

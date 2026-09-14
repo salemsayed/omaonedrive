@@ -117,9 +117,11 @@ Panel {
     })
   }
 
+  // Hide first: a throw anywhere in the bar-facade call must never leave the
+  // panel mapped, because every dismissal route ends up here.
   function close() {
-    setCenterHoverRevealSuppressed(false)
     root.controller.hide()
+    setCenterHoverRevealSuppressed(false)
   }
 
   function toggle() {
@@ -133,8 +135,13 @@ Panel {
     return false
   }
 
+  // Omarchy 4.0 hands third-party plugins the PluginBarApi facade, where this
+  // is readonly and writable only through the setter; the `in` probe alone
+  // still matches it and the bare assignment throws. Fall back for older hosts.
   function setCenterHoverRevealSuppressed(value) {
-    if (root.bar && "centerHoverRevealSuppressed" in root.bar)
+    if (root.bar && typeof root.bar.setCenterHoverRevealSuppressed === "function")
+      root.bar.setCenterHoverRevealSuppressed(value)
+    else if (root.bar && "centerHoverRevealSuppressed" in root.bar)
       root.bar.centerHoverRevealSuppressed = value
   }
 

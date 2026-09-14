@@ -11,6 +11,8 @@ pause/resume — in a panel like Omarchy's own Dropbox widget.
 
 ## Screenshots
 
+![Multiple accounts: independent controls and activity for the selected Work account](docs/images/panel-multi.png)
+
 ![Full layout: status, cloud storage, recent activity](docs/images/panel-full.png)
 
 ![A recovered upload failure shown as a neutral activity row](docs/images/panel-recovered.png)
@@ -50,7 +52,8 @@ pause/resume — in a panel like Omarchy's own Dropbox widget.
   deliberately no pause-everything button.
 - `↑` `↓` move, `Enter` activates. `R` refreshes storage, `F` verifies
   sync, `P` pauses or resumes, `O` opens the folder, `W` opens OneDrive on
-  the web, `L` opens login, `Esc` closes.
+  the web, `Shift+L` opens login, `Esc` closes. Lowercase `l` follows
+  Omarchy's Vim-style right-arrow navigation.
 
 Routine refreshes are local (service, journal, sync folder). Microsoft is
 contacted only by **Refresh storage** (`onedrive --display-quota`) and
@@ -105,6 +108,8 @@ git -C ~/.config/omarchy/plugins/io.github.salemsayed.omaonedrive rev-parse HEAD
 Marketplace verification covers an exact commit. The update command follows
 upstream HEAD, so compare the installed commit with the marketplace snapshot
 when checking verification coverage.
+See the marketplace's [official verification workflow](https://github.com/omacom/omarchy-plugin-marketplace/blob/main/VERIFICATION.md)
+for publishing and verifying a newer commit.
 
 ## Configure
 

@@ -6,7 +6,6 @@
   before any bar API call, so an API error cannot trap keyboard focus.
 - Preserve clickable notifications across notification daemons and reveal files
   through the desktop file manager when using multiple accounts.
-
 - Discover every configured OneDrive account -- the plain service and any
   `onedrive@<instance>` template units -- and show them all: one badge
   aggregated worst-first across the fleet, per-account tabs in the panel, and

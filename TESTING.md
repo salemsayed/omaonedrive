@@ -1,6 +1,7 @@
 # Testing
 
-Disposable-VM results are in [the VM test report](docs/VM-TEST-REPORT.md).
+The latest disposable-VM results are in the [1.6.0 test report](docs/VM-TEST-REPORT-1.6.0.md).
+The [earlier report](docs/VM-TEST-REPORT.md) covers the original single-account release.
 
 ## Automated
 

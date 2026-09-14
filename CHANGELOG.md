@@ -1,18 +1,34 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 - 2026-09-14
 
-- Fix a panel that could not be closed on Omarchy 4.0. The shell now passes
-  third-party plugins the `PluginBarApi` facade rather than the host `Bar`, and
-  there `centerHoverRevealSuppressed` is readonly — writable only through
-  `setCenterHoverRevealSuppressed()`. The `in` probe still matched the readonly
-  property, so `setCenterHoverRevealSuppressed()` assigned it anyway and threw
-  `TypeError: Cannot assign to read-only property`. Because `close()` called it
-  before `controller.hide()`, the panel stayed mapped and no dismissal route
-  could shut it — Escape, an outside click, the bar button and the IPC methods
-  all funnel through `close()`. Prefer the setter, as the first-party clock and
-  weather panels do, and hide before touching the facade so a future throw
-  cannot pin the panel open again.
+- Fix panel dismissal on Omarchy 4.0.3 by using the bar API setter and hiding
+  before any bar API call, so an API error cannot trap keyboard focus.
+- Preserve clickable notifications across notification daemons and reveal files
+  through the desktop file manager when using multiple accounts.
+
+- Discover every configured OneDrive account -- the plain service and any
+  `onedrive@<instance>` template units -- and show them all: one badge
+  aggregated worst-first across the fleet, per-account tabs in the panel, and
+  every action (pause, timed pause, resume, reauthentication, resync repair,
+  folder, storage) running against the selected account's own service, config
+  directory, and resume timer. A machine with one account keeps the
+  existing controls and layout.
+- Poll accounts round-robin on one shared budget with a startup ramp, run at
+  most one cloud check at a time across the fleet, and coalesce each polling
+  burst into a single desktop notification that names its account and opens
+  the one it is about.
+- Add `accounts` and `selectAccount` IPC functions so scripts can target a
+  specific account; notification clicks use the new `openAccount` and
+  `repairAccount` functions with the account carried in the persisted exec
+  hint.
+- Survive a helper, `systemctl`, or `systemd-run` that fails to start, hangs,
+  or exits without reporting: every spawned process settles exactly once, with
+  watchdogs, so one wedged command can no longer freeze polling or disable
+  Pause for the session.
+- Stamp every helper reply with the config directory it actually read and
+  refuse mismatches, so the startup poll can never attach one account's data
+  to another account's name.
 
 ## 1.5.8 - 2026-09-09
 

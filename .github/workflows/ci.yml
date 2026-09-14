@@ -12,14 +12,18 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "22"
       - name: Install test tools
-        run: sudo apt-get update && sudo apt-get install --yes jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes jq qt6-declarative-dev-tools qmlscene-qt6 \
+            qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml \
+            qml6-module-qtqml-models qml6-module-qtqml-workerscript
       - name: Check against reviewed Quattro manifest validator
         run: |
           git init "$RUNNER_TEMP/omarchy"
@@ -28,4 +32,7 @@ jobs:
           git -C "$RUNNER_TEMP/omarchy" checkout --detach FETCH_HEAD
           "$RUNNER_TEMP/omarchy/bin/omarchy-plugin-validate" .
       - name: Run isolated tests
+        env:
+          OMAONEDRIVE_REQUIRE_QT: "1"
+          OMAONEDRIVE_QML_RUNNER: /usr/lib/qt6/bin/qmlscene
         run: tests/run

@@ -111,6 +111,88 @@ test("folder, tooltip, and plugin paths handle spaces", () => {
     statusText: "Monitoring",
     syncMode: "Upload only"
   }), "Monitoring · Upload only")
+  assert.equal(Model.filePath("file:///tmp/Oma%20OneDrive/status.py"), "/tmp/Oma OneDrive/status.py")
+})
+
+test("an error line is squashed to one line and capped", () => {
+  // systemd and the onedrive client both emit multi-line errors hundreds of
+  // characters long. Pasted straight into the panel they pushed every other row
+  // off the screen.
+  assert.equal(Model.elideStatus("  one\n  two \t three  "), "one two three")
+  assert.equal(Model.elideStatus(""), "")
+  assert.equal(Model.elideStatus(null), "")
+  assert.equal(Model.elideStatus(undefined), "")
+
+  const long = "x".repeat(400)
+  const cut = Model.elideStatus(long)
+  assert.equal(cut.length, 178, cut.length + " characters")
+  assert.ok(cut.endsWith("…"))
+  // The boundary: 180 is kept whole, 181 is cut.
+  assert.equal(Model.elideStatus("y".repeat(180)).length, 180)
+  assert.ok(!Model.elideStatus("y".repeat(180)).endsWith("…"))
+  assert.ok(Model.elideStatus("y".repeat(181)).endsWith("…"))
+  // A tall error is squashed FIRST and capped second, so what survives is 177
+  // characters of message rather than 177 characters of indentation.
+  const tall = Model.elideStatus("    a\n".repeat(100))
+  assert.ok(!tall.includes("\n"), tall)
+  assert.ok(!tall.includes("  "), tall)
+  assert.equal(tall.length, 178)
+  assert.ok(tall.startsWith("a a a a"), tall)
+  // Whitespace alone is nothing to report.
+  assert.equal(Model.elideStatus("   \n\t  "), "")
+})
+
+test("relative times step through every unit, including the ones nobody reaches", () => {
+  // Inverting the month/year boundary left the suite green. A stale account is
+  // exactly where these matter: "13mo ago" and "1y ago" are the difference
+  // between a sync that is old and one that never happened.
+  const now = Date.UTC(2026, 0, 1)
+  const ago = seconds => Model.relativeTime(now / 1000 - seconds, now)
+  assert.equal(ago(30), "Just now")
+  assert.equal(Model.relativeTime(0, now), "Never")
+  assert.equal(ago(60 * 5), "5m ago")
+  assert.equal(ago(60 * 60 * 3), "3h ago")
+  assert.equal(ago(60 * 60 * 24 * 5), "5d ago")
+  assert.equal(ago(60 * 60 * 24 * 60), "2mo ago")
+  // The boundary the inversion crossed: 11 months is months, 12 is years.
+  assert.equal(ago(60 * 60 * 24 * 30 * 11), "11mo ago")
+  assert.equal(ago(60 * 60 * 24 * 400), "1y ago")
+  assert.equal(ago(60 * 60 * 24 * 800), "2y ago")
+})
+
+test("a file's glyph follows its kind, and each kind has its own", () => {
+  // Literal glyphs, not "whatever this kind currently returns": deriving the
+  // expectation from the code under test made the whole check self-consistent,
+  // and inverting the document branch stayed green.
+  const byKind = { image: "\u{f02e9}", video: "\u{f022b}", document: "\u{f0219}", other: "\u{f0214}" }
+  assert.equal(Model.fileGlyph("a.png"), byKind.image)
+  assert.equal(Model.fileGlyph("a.mp4"), byKind.video)
+  assert.equal(Model.fileGlyph("a.docx"), byKind.document)
+  assert.equal(Model.fileGlyph("a.bin"), byKind.other)
+  const drawn = Object.values(byKind)
+  assert.equal(new Set(drawn).size, drawn.length, "two file kinds share a glyph")
+  assert.equal(Model.fileGlyph("report.pdf"), byKind.document)
+  assert.equal(Model.fileGlyph("notes.txt"), byKind.document)
+  assert.equal(Model.fileGlyph("photo.JPG"), byKind.image, "extensions are case-insensitive")
+  assert.equal(Model.fileGlyph(""), byKind.other)
+})
+
+test("the hero line names the sync mode only when it means something", () => {
+  // Before sign-in the client reports a mode it is not using. Showing
+  // "Sign in required · Two-way" reads as though syncing were configured.
+  assert.equal(Model.heroMeta({ statusText: "Monitoring", authenticated: true, syncMode: "Two-way" }),
+    "Monitoring · Two-way")
+  assert.equal(Model.heroMeta({ statusText: "Sign in required", authenticated: false, syncMode: "Two-way" }),
+    "Sign in required")
+  assert.equal(Model.heroMeta({ statusText: "Monitoring", authenticated: true, syncMode: "" }),
+    "Monitoring")
+  assert.equal(Model.heroMeta(null), "Checking…")
+})
+
+test("markup in helper data cannot become rich text at inherited boundaries", () => {
+  // From upstream 1.5.6: Omarchy 4.0.1's shared bar tooltip and PanelHero use
+  // Text.AutoText, so a filename shaped like markup would render as markup.
+  // The delimiters are swapped for lookalikes, so the name stays readable.
   const markupStatus = {
     installed: true,
     authenticated: true,
@@ -118,64 +200,28 @@ test("folder, tooltip, and plugin paths handle spaces", () => {
     syncMode: "Two-way",
     lastSyncTs: 0
   }
-  assert.equal(
-    Model.tooltip(markupStatus),
-    "Uploading ‹b›quarterly report‹/b›.pdf · Two-way"
-  )
-  assert.equal(
-    Model.heroMeta(markupStatus),
-    "Uploading ‹b›quarterly report‹/b›.pdf · Two-way"
-  )
+  assert.equal(Model.tooltip(markupStatus),
+    "Uploading ‹b›quarterly report‹/b›.pdf · Two-way")
+  assert.equal(Model.heroMeta(markupStatus),
+    "Uploading ‹b›quarterly report‹/b›.pdf · Two-way")
   assert.doesNotMatch(Model.tooltip(markupStatus), /[<>]/)
-  assert.equal(Model.filePath("file:///tmp/Oma%20OneDrive/status.py"), "/tmp/Oma OneDrive/status.py")
-})
 
-test("notification click actions follow Omarchy 4.0.1's safe argv contract", () => {
-  assert.deepEqual(
-    Model.notificationActionArgv("open"),
-    ["omarchy-shell", "io.github.salemsayed.omaonedrive", "open"]
-  )
-  assert.deepEqual(
-    Model.notificationActionArgv("repair"),
-    ["omarchy-shell", "io.github.salemsayed.omaonedrive", "resync"]
-  )
-  assert.deepEqual(Model.notificationActionArgv("arbitrary user input"), [])
-
-  // A clickable toast goes through the helper, which is what keeps the
-  // libnotify "default" action alive: an action only exists while its sender
-  // is still on the bus to be told the card was clicked.
-  const clickable = Model.notificationCommand(
-    "critical", "OneDrive failed", "Open the panel.", "open", "/x/omaonedrive-click")
-  assert.equal(clickable[0], "/x/omaonedrive-click")
-  assert.deepEqual(JSON.parse(clickable[1]),
-    ["omarchy-shell", "io.github.salemsayed.omaonedrive", "open"])
-  const notifyArgv = JSON.parse(clickable[2])
-  assert.equal(notifyArgv[0], "notify-send")
-  assert.deepEqual(notifyArgv.slice(-2), ["OneDrive failed", "Open the panel."])
-  // Omarchy's own service reads its click out of this hint and returns before
-  // it looks for an action, so the two clicks never both fire.
-  const hint = notifyArgv[notifyArgv.indexOf("--hint") + 1]
-  assert.deepEqual(JSON.parse(hint.slice("string:omarchy-exec-argv:".length)),
-    ["omarchy-shell", "io.github.salemsayed.omaonedrive", "open"])
-  // The action and its file descriptor belong to the helper.
-  assert.ok(!notifyArgv.includes("--action"))
-  assert.ok(!notifyArgv.includes("--selected-action-fd"))
-
-  // Nothing to click needs nothing kept alive behind it.
-  assert.deepEqual(
-    Model.notificationCommand("normal", "OneDrive recovered", "Sync is healthy.", "",
-                              "/x/omaonedrive-click"),
-    [
-      "omarchy-notification-send", "--app-name", "OmaOneDrive", "--urgency", "normal",
-      "OneDrive recovered", "Sync is healthy."
-    ]
-  )
-  // No helper resolved: a plain toast still goes out, just without the click.
-  assert.deepEqual(
-    Model.notificationCommand("critical", "OneDrive failed", "Open the panel.", "open", ""),
-    [
-      "omarchy-notification-send", "--app-name", "OmaOneDrive", "--urgency", "critical",
-      "OneDrive failed", "Open the panel."
-    ]
-  )
+  // The multi-account tooltip is the SAME shared bar boundary, and its lines
+  // carry helper-derived names and errors too.
+  const fleet = Model.aggregateTooltip([
+    { initialized: true, installed: true, authenticated: true, serviceAvailable: true,
+      running: true, activeState: "active", instance: "a<script>",
+      description: "OneDrive sync (a<script> account)",
+      statusText: "Uploading <img> file", syncMode: "Two-way", lastSyncTs: 0 },
+    { initialized: true, installed: true, authenticated: true, serviceAvailable: true,
+      running: true, activeState: "active", instance: "b", description: "",
+      statusText: "Monitoring", syncMode: "Two-way", lastSyncTs: 0 }
+  ], Date.now())
+  assert.doesNotMatch(fleet, /[<>]/, fleet)
+  assert.ok(fleet.includes("‹img›"), fleet)
+  // ...and the broken-account error path.
+  const broken = Model.aggregateTooltip(
+    [{ initialized: false, attempted: true, instance: "x",
+       lastError: "systemd said <no>" }], Date.now())
+  assert.doesNotMatch(broken, /[<>]/, broken)
 })

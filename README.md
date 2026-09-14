@@ -24,9 +24,15 @@ pause/resume — in a panel like Omarchy's own Dropbox widget.
 - **Live status** — monitoring, syncing, paused, or needs attention, with
   the file currently transferring and its progress. Interruptions show as
   "retrying", never as a frozen percentage.
+- **Multiple accounts** — every configured account is discovered from its own
+  systemd unit, with a selector row in the panel, per-account pause, login and
+  repair, and one bar badge showing whichever account most needs attention.
+  A single-account setup keeps the same commands, cache and lock paths, tooltip,
+  panel layout and notification text.
 - **Notifications** when OneDrive fails, needs a resync or reauthentication,
   recovers, or storage passes 90% full. Clicking one opens the panel or
-  starts the repair. Optional.
+  starts the repair. Events from several accounts are grouped into one
+  notification that names them. Optional.
 - **Guided repair** — opens the CLI's own interactive `--resync` flow in a
   terminal, which asks before it touches anything.
 - **Pause and resume** with 15-minute, 1-hour and 4-hour timed pauses.
@@ -40,7 +46,9 @@ pause/resume — in a panel like Omarchy's own Dropbox widget.
 ## Controls
 
 - Left click toggles the panel; middle click opens the OneDrive folder;
-  right click refreshes cloud storage.
+  right click refreshes cloud storage. With several accounts, the panel's
+  selector row chooses which account every control acts on; there is
+  deliberately no pause-everything button.
 - `↑` `↓` move, `Enter` activates. `R` refreshes storage, `F` verifies
   sync, `P` pauses or resumes, `O` opens the folder, `W` opens OneDrive on
   the web, `L` opens login, `Esc` closes.
@@ -50,6 +58,16 @@ contacted only by **Refresh storage** (`onedrive --display-quota`) and
 **Verify sync** (`onedrive --display-sync-status`, slow on large drives,
 never automatic) — plus one storage retry when you open the panel onto a
 failed check older than five minutes.
+
+With several accounts the refresh interval is shared rather than multiplied:
+in steady state each account is polled once per interval, staggered across it,
+and only one account is read at a time. At startup a faster ramp runs until every
+account has reported once. Cloud checks stay manual and run one at a time across
+all accounts.
+
+Accounts are found by reading each `onedrive` systemd user unit's own
+`ExecStart` for its `--confdir`, so an instance pointed at an unrelated
+directory is still found correctly. Nothing is guessed from unit names.
 
 ## Requirements
 

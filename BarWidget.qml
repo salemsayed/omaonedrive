@@ -13,33 +13,35 @@ BarWidget {
   property bool ipcRegistrationReady: false
 
   readonly property var service: panelLoader.item ? panelLoader.item.service : null
-  readonly property bool active: service ? service.active : false
-  readonly property bool syncing: service ? service.syncing : false
-  readonly property bool starting: service ? service.activeState === "activating" : false
-  readonly property bool installed: service ? service.installed : false
-  readonly property bool authenticated: service ? service.authenticated : false
-  readonly property bool attention: service
-    ? service.serviceFailed || service.resyncRequired || service.reauthRequired
-    : false
+
+  // Worst of N. With one account this resolves to exactly the state the old
+  // flat ternary produced; the mapping and the precedence are table-tested in
+  // tests/Aggregate.test.js rather than spelled out here.
+  readonly property var aggregate: service
+    ? service.aggregate
+    : ({ kind: "checking", count: 0, anyActive: false, initialized: false })
+  readonly property int accountCount: service ? service.accountCount : 0
+
+  // Lit/dim/spinning is decided in Model.js, not here: nothing in this file can
+  // be instantiated by a test, so an expression written inline is one no
+  // assertion can reach. tests/Aggregate.test.js pins the rules.
+  readonly property var barState: Model.barState(aggregate)
+  readonly property bool active: barState.active
+  readonly property bool syncing: barState.syncing
+  readonly property bool installed: barState.installed
   readonly property color iconColor: active
     ? (bar ? bar.barForeground : Color.foreground)
     : Qt.darker(bar ? bar.barForeground : Color.foreground, 1.55)
-  readonly property string badgeKind: !installed ? "missing"
-    : (!authenticated ? "login"
-      : (attention ? "attention"
-        : (syncing || starting ? "syncing"
-          : (!active ? "paused" : ""))))
-  readonly property string badgeGlyph: badgeKind === "missing" ? "󰅖"
-    : (badgeKind === "login" ? "󰌋"
-      : (badgeKind === "paused" ? "󰏤"
-        : (badgeKind === "syncing" ? "󰑓"
-          : (badgeKind === "attention" ? "󰀪" : ""))))
+  // The worst account's kind, pause included: every account has to be working
+  // before the bar looks normal. See the note in Model.aggregateAccounts.
+  readonly property string badgeKind: Model.badgeKind(aggregate.kind)
+  readonly property string badgeGlyph: Model.badgeGlyph(badgeKind)
   readonly property color badgeColor: badgeKind === "login" || badgeKind === "attention"
     ? (bar ? bar.urgent : Color.urgent)
     : (badgeKind === "syncing" ? Color.accent : iconColor)
   readonly property color badgeBackground: bar ? bar.background : Color.background
   readonly property string tooltipText: service
-    ? Model.tooltip(service, Date.now())
+    ? Model.aggregateTooltip(service.accounts, Date.now())
     : "Checking OneDrive…"
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
@@ -54,7 +56,7 @@ BarWidget {
     if ("hostWidget" in target) target.hostWidget = root
   }
 
-  function open() { if (panelLoader.item) panelLoader.item.open() }
+  function open(accountTarget) { if (panelLoader.item) panelLoader.item.open(accountTarget) }
   function close() { if (panelLoader.item) panelLoader.item.close() }
   function togglePanel() { if (panelLoader.item) panelLoader.item.toggle() }
   function closeForPopoutSwitch() {
@@ -135,6 +137,36 @@ BarWidget {
       return "ok"
     }
     function status(): string { return root.service ? root.service.statusText : "Checking…" }
+    // Enumerate and select, so automation can reach a non-default account before
+    // invoking any of the controls above -- which all act on the selected one.
+    // Both bodies live in Model.js: this file cannot be instantiated headless,
+    // so anything inline here is untestable.
+    function accounts(): string {
+      if (!root.service) return "[]"
+      return JSON.stringify(Model.accountRows(root.service.accounts, root.service.selectedService))
+    }
+    function selectAccount(target: string): string {
+      if (!root.service) return "no accounts"
+      var found = Model.resolveAccountTarget(root.service.accounts, target)
+      if (found === "") return "unknown account: " + target
+      // false: automation selecting an account merely to target a control must
+      // not trigger the panel's stale-quota retry, which contacts Microsoft.
+      root.service.selectAccount(found, false)
+      return "ok"
+    }
+    // Notification clicks land here: the daemon persists the popup's --exec
+    // hint and runs `omarchy-shell <target> openAccount <service>` on click,
+    // which works even after this process has been reloaded. Behaviour lives
+    // in Service.qml so the harness can drive it.
+    function openAccount(target: string): string {
+      // The panel selects the target before any account refresh or quota retry.
+      root.open(target)
+      return "ok"
+    }
+    function repairAccount(target: string): string {
+      if (root.service) root.service.repairFromNotification(target)
+      return "ok"
+    }
   }
 
   BarIconButton {
@@ -184,7 +216,13 @@ BarWidget {
         }
       }
     }
+    // Every gesture points at the account the badge is about before acting.
+    // Only left-click did, so middle-click opened the folder of whichever
+    // account happened to be selected -- at cold boot, the first discovered one
+    // -- while the badge was about another, and right-click spent the single
+    // 30-second cloud slot on the wrong account.
     onPressed: function(buttonCode) {
+      if (root.service) root.service.selectBadgedAccount()
       if (buttonCode === Qt.RightButton && root.service) root.service.checkQuota()
       else if (buttonCode === Qt.MiddleButton && root.service) root.service.openFolder()
       else root.togglePanel()

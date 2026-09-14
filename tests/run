@@ -4,8 +4,100 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-node --test "$root/tests/Model.test.js" "$root/tests/IpcLifecycle.test.js"
+node --test "$root/tests/Model.test.js" "$root/tests/IpcLifecycle.test.js" \
+  "$root/tests/Commands.test.js" "$root/tests/Aggregate.test.js" \
+  "$root/tests/Discovery.test.js" "$root/tests/Notifications.test.js" \
+  "$root/tests/Scheduler.test.js" "$root/tests/PanelWiring.test.js"
+
+# Nothing else in this suite PARSES BarWidget.qml or Panel.qml. Both derive from
+# the bar's own types, so the harness cannot instantiate them, and a syntax error
+# in either -- a thousand lines of panel, in Panel.qml's case -- would leave the
+# whole suite green while the widget failed to load at all.
+#
+# qmllint cannot resolve qs.Commons or qs.Ui outside Omarchy, so most of what it
+# reports here is import noise. These two categories are structural and say
+# nothing about imports: a parse failure, and a property bound twice.
+qmllint_runner=$(command -v qmllint || echo /usr/lib/qt6/bin/qmllint)
+if [ -x "$qmllint_runner" ]; then
+  qmllint_bad=0
+  for qml_file in "$root"/*.qml "$root"/tests/qml/*.qml; do
+    [ -f "$qml_file" ] || continue
+    lint=$("$qmllint_runner" -I "$root" -I "$root/tests/qmlstubs" "$qml_file" 2>&1 \
+      | grep -E '\[(syntax|duplicate-property-binding)\]' || true)
+    if [ -n "$lint" ]; then
+      echo "$lint" >&2
+      qmllint_bad=1
+    fi
+  done
+  [ "$qmllint_bad" -eq 0 ] || { echo "qmllint found a structural error" >&2; exit 1; }
+else
+  [[ ${OMAONEDRIVE_REQUIRE_QT:-0} != 1 ]] || { echo "qmllint is required" >&2; exit 1; }
+  echo "qmllint SKIPPED (not installed)" >&2
+fi
+
+# Executes the real Service.qml and Account.qml against stub Quickshell types.
+# Skipped rather than failed where qml6 is unavailable, so the suite still runs
+# on a machine without Qt tooling -- but it is the only coverage of the
+# scheduler, the cloud semaphore, discovery reconciliation and the per-account
+# command vectors, so a skip is worth noticing.
+# A floor, not an exact count: adding checks must not need a bookkeeping edit,
+# but silently losing most of them must fail. Raise it when coverage grows
+# substantially.
+qml_min_checks=305
+qml_runner=${OMAONEDRIVE_QML_RUNNER:-$(command -v qml6 || echo /usr/lib/qt6/bin/qml)}
+if [ -x "$qml_runner" ]; then
+  python3 "$root/tests/PanelLifecycle.test.py" "$qml_runner"
+  # Capture qml's own status BEFORE any pipeline. Filtering through
+  # `grep ... || true` starts a new pipeline, so PIPESTATUS[0] reports `true`'s
+  # zero and the harness can never fail the suite -- which is exactly what it did
+  # until a reviewer caught it.
+  qml_output=$(mktemp)
+  trap 'rm -f -- "$qml_output"' EXIT
+  # `set -e` would kill the script at a non-zero subshell BEFORE the status is
+  # captured, so the diagnostics below -- and the cleanup -- never ran, and the
+  # only evidence of a harness failure was a bare exit code. `|| qml_status=$?`
+  # keeps the failure and keeps going.
+  #
+  # ulimit -c 0: a Qt tool that cannot initialise a platform plugin aborts, and a
+  # core dump per test run is noise in the user's journal.
+  # QT_QPA_PLATFORMTHEME is unset because an inherited gtk3 theme tries to open
+  # the X display even under the offscreen platform, and the run then fails for a
+  # reason that has nothing to do with the widget.
+  qml_status=0
+  ( ulimit -c 0; unset QT_QPA_PLATFORMTHEME; \
+    QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    "$qml_runner" -I "$root/tests/qmlstubs" "$root/tests/qml/Harness.qml" >"$qml_output" 2>&1 ) \
+    || qml_status=$?
+  grep -v 'propertyCache\|Gtk-WARNING\|cannot open display' "$qml_output" || true
+
+  # A zero exit is not evidence the harness ran. A qml that starts and quits, a
+  # step loop that stops early, a Qt.exit() from somewhere unexpected -- all of
+  # them exited 0 while executing no assertions at all, and the suite reported
+  # success. Require the sentinel AND a plausible number of checks.
+  qml_checks=$(sed -n 's/^.*QML harness: \([0-9]*\) checks executed.*$/\1/p' "$qml_output" | tail -1)
+  : "${qml_checks:=0}"
+  if [ "$qml_status" -ne 0 ]; then
+    echo "QML harness failed (exit $qml_status, $qml_checks checks)" >&2
+    exit 1
+  fi
+  if ! grep -q 'QML harness: all checks passed' "$qml_output"; then
+    echo "QML harness did not report success -- it exited 0 without finishing" >&2
+    exit 1
+  fi
+  if [ "$qml_checks" -lt "$qml_min_checks" ]; then
+    echo "QML harness ran only $qml_checks checks, expected at least $qml_min_checks" >&2
+    echo "If you deliberately removed coverage, lower qml_min_checks in tests/run." >&2
+    exit 1
+  fi
+else
+  [[ ${OMAONEDRIVE_REQUIRE_QT:-0} != 1 ]] || { echo "Qt harness is required" >&2; exit 1; }
+  echo "QML harness SKIPPED (no qml6 on PATH)" >&2
+fi
 python3 "$root/tests/Journal.test.py"
 "$root/tests/Status.test.sh"
+
+# Integration: the argv the QML builds, run against the real helper on this
+# machine. Skips where qml6 or real accounts are absent.
+"$root/tests/contract.sh"
 
 echo "All OmaOneDrive tests passed"

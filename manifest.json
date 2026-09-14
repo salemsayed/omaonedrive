@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.salemsayed.omaonedrive",
   "name": "OmaOneDrive",
-  "version": "1.5.8",
+  "version": "1.6.0",
   "author": "Salem Sayed",
   "license": "MIT",
-  "description": "OneDrive status, timed pause controls, cloud storage, and recent sync activity in the Omarchy bar.",
+  "description": "OneDrive status, timed pause controls, cloud storage, and recent sync activity in the Omarchy bar, for one account or several.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "OmaOneDrive",
-    "description": "Control and temporarily pause the OneDrive CLI, check cloud status, and open recent local files.",
+    "description": "Control and temporarily pause the OneDrive CLI, check cloud status, and open recent local files. Discovers every configured account and shows the one that most needs attention.",
     "category": "Files",
     "allowMultiple": false,
     "defaultSection": "right",
@@ -30,7 +30,7 @@
         "type": "boolean",
         "label": "Desktop notifications",
         "defaultValue": true,
-        "description": "Notify when OneDrive needs attention, recovers, or cloud storage is almost full."
+        "description": "Notify when OneDrive needs attention, recovers, or cloud storage is almost full. Events from several accounts are grouped into one notification."
       },
       {
         "key": "refreshIntervalSec",
@@ -40,7 +40,7 @@
         "max": 3600,
         "step": 10,
         "defaultValue": 30,
-        "description": "Reads the local service, journal, and cached cloud status. It does not contact Microsoft."
+        "description": "Reads the local service, journal, and cached cloud status. It does not contact Microsoft. With several accounts the interval is shared: each account is polled once per interval, staggered across it."
       },
       {
         "key": "recentFileLimit",
@@ -50,15 +50,18 @@
         "max": 50,
         "step": 5,
         "defaultValue": 20,
-        "description": "Maximum number of recently modified local OneDrive files shown in the panel."
+        "description": "Maximum number of recently modified local OneDrive files shown in the panel, for the selected account."
       },
       {
         "key": "panelStyle",
         "type": "enum",
         "label": "Panel layout",
-        "options": ["Full", "Compact"],
+        "options": [
+          "Full",
+          "Compact"
+        ],
         "defaultValue": "Full",
-        "description": "Full shows storage and recent activity. Compact shows storage only, in a shorter panel."
+        "description": "Full shows storage and recent activity. Compact shows storage only, in a shorter panel. Both show the account selector when more than one account exists."
       }
     ]
   }

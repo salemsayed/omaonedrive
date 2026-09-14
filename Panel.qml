@@ -105,10 +105,13 @@ Panel {
     })
   }
 
-  function open() {
+  function open(accountTarget) {
     root.controller.show()
-    oneDrive.refresh(false)
-    oneDrive.retryStaleQuotaOnOpen()
+    var fromNotification = typeof accountTarget === "string" && accountTarget !== ""
+    if (fromNotification) oneDrive.openFromNotification(accountTarget)
+    else oneDrive.selectBadgedAccount()
+    oneDrive.refreshSelected()
+    if (!fromNotification) oneDrive.retryStaleQuotaOnOpen()
     Qt.callLater(function() {
       if (root.opened) {
         root.setCenterHoverRevealSuppressed(true)
@@ -159,6 +162,16 @@ Panel {
   }
   onPanelStyleChanged: ensureCursor()
 
+  // Switching account changes which rows exist and whether they are enabled, so
+  // the keyboard cursor is revalidated and the view returns to the top rather
+  // than leaving the reader halfway down a different account's activity list.
+  function selectAccount(service) {
+    if (!service || service === oneDrive.selectedService) return
+    oneDrive.selectAccount(service)
+    if (panelScroll) panelScroll.contentY = 0
+    ensureCursor()
+  }
+
   Service {
     id: oneDrive
     settings: root.settings
@@ -172,6 +185,8 @@ Panel {
     function onBusyChanged() { root.ensureCursor() }
     function onResumeAtChanged() { root.ensureCursor() }
     function onActiveChanged() { root.ensureCursor() }
+    function onSelectedServiceChanged() { root.ensureCursor() }
+    function onAccountCountChanged() { root.ensureCursor() }
   }
 
   BarIconButton {
@@ -224,6 +239,46 @@ Panel {
           width: panelScroll.width
           spacing: Style.space(10)
 
+          // Account selector. Hidden entirely for a single account, where it
+          // contributes no height and no spacing, so both panel styles keep
+          // their current layout. The hero title stays "OneDrive" either way --
+          // the selected segment already carries identity.
+          Flickable {
+            id: accountTabsScroll
+            visible: oneDrive.accountCount > 1
+            width: parent.width
+            height: visible ? accountTabs.implicitHeight : 0
+            contentWidth: accountTabs.implicitWidth
+            contentHeight: height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+            // Only this row scrolls sideways when the labels do not fit; the
+            // panel itself never widens.
+            interactive: contentWidth > width
+
+            Row {
+              id: accountTabs
+              spacing: Style.space(4)
+              readonly property real segmentWidth: {
+                var count = Math.max(1, oneDrive.accountCount)
+                var available = accountTabsScroll.width - spacing * (count - 1)
+                return Math.max(Style.space(88), available / count)
+              }
+
+              Repeater {
+                model: oneDrive.accounts
+                delegate: AccountTab {
+                  required property var modelData
+                  account: modelData
+                  width: accountTabs.segmentWidth
+                  selected: modelData && modelData.service === oneDrive.selectedService
+                  onActivated: root.selectAccount(modelData.service)
+                }
+              }
+            }
+          }
+
           Item {
             id: headerItem
             visible: oneDrive.authenticated
@@ -256,6 +311,7 @@ Panel {
                   visible: oneDrive.installed && oneDrive.serviceAvailable && oneDrive.authenticated
 
                   Text {
+
                     textFormat: Text.PlainText
                     anchors.verticalCenter: parent.verticalCenter
                     text: oneDrive.activeState === "activating" ? "Starting"
@@ -287,6 +343,7 @@ Panel {
           }
 
           Text {
+
             textFormat: Text.PlainText
             visible: oneDrive.actionStatus !== "" || oneDrive.lastError !== ""
             width: parent.width
@@ -343,6 +400,7 @@ Panel {
           }
 
           Text {
+
             textFormat: Text.PlainText
             visible: oneDrive.authenticated && oneDrive.serviceAvailable && !oneDrive.enabled
             width: parent.width
@@ -392,6 +450,7 @@ Panel {
                 implicitHeight: Math.max(storageHeader.implicitHeight, storageValue.implicitHeight)
 
                 PanelSectionHeader {
+
                   textFormat: Text.PlainText
                   id: storageHeader
                   text: "STORAGE"
@@ -402,6 +461,7 @@ Panel {
                 }
 
                 Text {
+
                   textFormat: Text.PlainText
                   id: storageValue
                   text: Model.usageShort(oneDrive.usedBytes, oneDrive.quotaBytes, oneDrive.quotaKnown)
@@ -440,6 +500,7 @@ Panel {
                 implicitHeight: Math.max(storageFree.implicitHeight, storageChecked.implicitHeight)
 
                 Text {
+
                   textFormat: Text.PlainText
                   id: storageFree
                   text: oneDrive.quotaKnown
@@ -454,6 +515,7 @@ Panel {
                 }
 
                 Text {
+
                   textFormat: Text.PlainText
                   id: storageChecked
                   text: Model.checkedText(oneDrive.quotaCheckedTs)
@@ -467,6 +529,7 @@ Panel {
               }
 
               Text {
+
                 textFormat: Text.PlainText
                 id: quotaWarning
                 visible: oneDrive.quotaChecking || oneDrive.quotaError !== ""
@@ -513,6 +576,7 @@ Panel {
               implicitHeight: Math.max(activityHeader.implicitHeight, activityMeta.implicitHeight)
 
               PanelSectionHeader {
+
                 textFormat: Text.PlainText
                 id: activityHeader
                 text: "ACTIVITY"
@@ -523,6 +587,7 @@ Panel {
               }
 
               Text {
+
                 textFormat: Text.PlainText
                 id: activityMeta
                 text: Model.syncMeta(oneDrive.lastSyncTs) || Model.activityMeta(root.activityRows)
@@ -537,6 +602,7 @@ Panel {
             }
 
             Text {
+
               textFormat: Text.PlainText
               visible: root.activityRows.length === 0
               width: parent.width
@@ -574,6 +640,7 @@ Panel {
             spacing: Style.space(6)
 
             PanelSectionHeader {
+
               textFormat: Text.PlainText
               text: oneDrive.active ? "PAUSE FOR" : "RESUME IN"
               foreground: root.foreground
@@ -761,6 +828,7 @@ Panel {
       spacing: Style.space(9)
 
       Text {
+
         textFormat: Text.PlainText
         id: actionRowGlyph
         text: actionRow.icon
@@ -783,6 +851,7 @@ Panel {
         spacing: Style.space(1)
 
         Text {
+
           textFormat: Text.PlainText
           Layout.fillWidth: true
           text: actionRow.title
@@ -793,6 +862,7 @@ Panel {
         }
 
         Text {
+
           textFormat: Text.PlainText
           Layout.fillWidth: true
           text: actionRow.subtitle
@@ -872,6 +942,7 @@ Panel {
       spacing: Style.space(7)
 
       Text {
+
         textFormat: Text.PlainText
         text: Model.activityGlyph(activityRow.rowData)
         color: root.foreground
@@ -885,6 +956,7 @@ Panel {
         spacing: Style.space(1)
 
         Text {
+
           textFormat: Text.PlainText
           Layout.fillWidth: true
           text: activityRow.title
@@ -896,6 +968,7 @@ Panel {
         }
 
         Text {
+
           textFormat: Text.PlainText
           visible: activityRow.detail !== ""
           Layout.fillWidth: true
@@ -908,6 +981,7 @@ Panel {
       }
 
       Text {
+
         textFormat: Text.PlainText
         text: Model.relativeTime(activityRow.rowData && activityRow.rowData.ts || 0)
         color: root.dim
@@ -916,6 +990,68 @@ Panel {
         horizontalAlignment: Text.AlignRight
         Layout.alignment: Qt.AlignTop | Qt.AlignRight
       }
+    }
+  }
+
+  component AccountTab: CursorSurface {
+    id: accountTab
+    property var account: null
+    property bool selected: false
+    readonly property bool keyboardEnabled: true
+    signal activated()
+    function keyboardActivate() { activated() }
+
+    // No glyph until this account has reported: its default values would
+    // otherwise render as the missing-client mark, which is the same drift the
+    // bar's checking gate exists to prevent.
+    readonly property string stateKind: account && account.initialized
+      ? Model.badgeKind(Model.accountStateKind(account)) : ""
+
+    foreground: root.foreground
+    // The selected segment carries the border; the rest read as quiet labels.
+    bordered: accountTab.selected
+    hasCursor: (accountTabMouse.containsMouse || root.cursorItem === accountTab)
+    implicitHeight: Style.space(30)
+    height: implicitHeight
+
+    Row {
+      anchors.centerIn: parent
+      spacing: Style.space(5)
+
+      Text {
+
+        textFormat: Text.PlainText
+        anchors.verticalCenter: parent.verticalCenter
+        visible: accountTab.stateKind !== ""
+        text: Model.badgeGlyph(accountTab.stateKind)
+        color: accountTab.stateKind === "attention" || accountTab.stateKind === "login"
+          ? Color.urgent
+          : (accountTab.stateKind === "syncing" ? Color.accent : root.dim)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      Text {
+
+        textFormat: Text.PlainText
+        anchors.verticalCenter: parent.verticalCenter
+        text: accountTab.account
+          ? Model.accountName(accountTab.account.instance, accountTab.account.description)
+          : ""
+        color: accountTab.selected ? root.foreground : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
+        width: Math.min(implicitWidth, Math.max(0, accountTab.width - Style.space(22)))
+      }
+    }
+
+    MouseArea {
+      id: accountTabMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: accountTab.activated()
     }
   }
 
@@ -942,6 +1078,7 @@ Panel {
       spacing: Style.space(6)
 
       Text {
+
         textFormat: Text.PlainText
         id: actionChipGlyph
         anchors.verticalCenter: parent.verticalCenter
@@ -960,6 +1097,7 @@ Panel {
       }
 
       Text {
+
         textFormat: Text.PlainText
         // Keep the label inside the chip border: give it only the width the
         // chip can spare, shrinking the font slightly before eliding.
@@ -1018,6 +1156,7 @@ Panel {
       spacing: Style.space(8)
 
       Text {
+
         textFormat: Text.PlainText
         id: compactActionGlyph
         text: compactRow.icon
@@ -1036,6 +1175,7 @@ Panel {
       }
 
       Text {
+
         textFormat: Text.PlainText
         Layout.fillWidth: true
         text: compactRow.title
@@ -1046,6 +1186,7 @@ Panel {
       }
 
       Text {
+
         textFormat: Text.PlainText
         visible: compactRow.meta !== ""
         text: compactRow.meta

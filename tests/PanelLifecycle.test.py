@@ -89,7 +89,7 @@ Item {
     try { root.close() } catch (error) { threw = true }
     check(threw && root.hidden, "a throwing API cannot prevent hiding")
     console.log("Panel lifecycle: " + checks + " checks, " + failures + " failures")
-    Qt.exit(failures ? 1 : 0)
+    Qt.callLater(function() { Qt.exit(failures ? 1 : 0) })
   }
 }
 '''.replace('FUNCTIONS', '\n'.join(functions))

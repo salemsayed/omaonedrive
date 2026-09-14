@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0 - 2026-09-14
+## 1.6.0 - 2026-09-15
 
 - Fix panel dismissal on Omarchy 4.0.3 by using the bar API setter and hiding
   before any bar API call, so an API error cannot trap keyboard focus.

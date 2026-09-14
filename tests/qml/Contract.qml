@@ -37,7 +37,7 @@ Item {
       } else if (step === 5) {
         var s2 = Quickshell.running()
         for (var p = 0; p < s2.length; p++) console.log("CMD " + JSON.stringify(s2[p].command))
-        Qt.exit(0)
+        Qt.callLater(function() { Qt.exit(0) })
       }
     }
   }

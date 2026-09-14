@@ -27,8 +27,7 @@ pause/resume — in a panel like Omarchy's own Dropbox widget.
 - **Multiple accounts** — every configured account is discovered from its own
   systemd unit, with a selector row in the panel, per-account pause, login and
   repair, and one bar badge showing whichever account most needs attention.
-  A single-account setup keeps the same commands, cache and lock paths, tooltip,
-  panel layout and notification text.
+  A single-account setup keeps its existing controls and panel layout.
 - **Notifications** when OneDrive fails, needs a resync or reauthentication,
   recovers, or storage passes 90% full. Clicking one opens the panel or
   starts the repair. Events from several accounts are grouped into one
@@ -87,6 +86,25 @@ systemctl --user enable --now onedrive.service
 ```bash
 omarchy plugin add https://github.com/salemsayed/omaonedrive.git --enable
 ```
+
+## Update
+
+```bash
+omarchy plugin update io.github.salemsayed.omaonedrive
+omarchy restart shell
+```
+
+Restart the shell after updating so the running panel uses the new code.
+Check the installed version and commit with:
+
+```bash
+jq -r .version ~/.config/omarchy/plugins/io.github.salemsayed.omaonedrive/manifest.json
+git -C ~/.config/omarchy/plugins/io.github.salemsayed.omaonedrive rev-parse HEAD
+```
+
+Marketplace verification covers an exact commit. The update command follows
+upstream HEAD, so compare the installed commit with the marketplace snapshot
+when checking verification coverage.
 
 ## Configure
 

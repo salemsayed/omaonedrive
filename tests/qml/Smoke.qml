@@ -35,7 +35,7 @@ Item {
         }
         console.log("aggregate:", JSON.stringify(svc.aggregate.kind), "initialized:", svc.aggregate.initialized)
       }
-      if (step >= 4) Qt.exit(0)
+      if (step >= 4) Qt.callLater(function() { Qt.exit(0) })
     }
   }
 }

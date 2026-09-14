@@ -352,13 +352,13 @@ Item {
   // Transitions are reported, not delivered. The coordinator batches whatever
   // arrives in one polling burst into at most one desktop notification, so three
   // accounts going wrong together do not produce three popups.
-  function report(kind, summary, short, body, action) {
+  function report(kind, summary, shortText, body, action) {
     transition({
       service: root.service,
       name: displayName,
       kind: kind,
       summary: summary,
-      short: short,
+      short: shortText,
       body: body,
       action: action || ""
     })

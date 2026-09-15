@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -878,17 +877,11 @@ def cloud_check(onedrive_path, confdir, cache, check_quota, check_sync_status):
   quota_command = [onedrive_path, "--confdir", str(confdir), "--display-quota"]
   status_command = [onedrive_path, "--confdir", str(confdir), "--display-sync-status"]
   checked_at = int(time.time())
-  if check_quota and check_sync_status:
-    with ThreadPoolExecutor(max_workers=2) as executor:
-      quota_future = executor.submit(command_output, quota_command, QUOTA_TIMEOUT_SECONDS)
-      status_future = executor.submit(command_output, status_command, SYNC_STATUS_TIMEOUT_SECONDS)
-      quota_result = quota_future.result()
-      status_result = status_future.result()
-    apply_quota_result(cache, *quota_result, checked_at)
-    apply_sync_status_result(cache, *status_result, checked_at)
-  elif check_quota:
+  # Both client commands access the same account database. Running them at
+  # once can make either fail with "database is currently locked".
+  if check_quota:
     apply_quota_result(cache, *command_output(quota_command, timeout=QUOTA_TIMEOUT_SECONDS), checked_at)
-  elif check_sync_status:
+  if check_sync_status:
     apply_sync_status_result(
       cache,
       *command_output(status_command, timeout=SYNC_STATUS_TIMEOUT_SECONDS),

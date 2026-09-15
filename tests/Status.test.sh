@@ -31,6 +31,14 @@ for argument in "$@"; do
   [[ $previous == --confdir ]] && confdir="$argument"
   previous="$argument"
 done
+if [[ -n ${FAKE_CLOUD_LOCK:-} && ( " $* " == *" --display-quota "* || " $* " == *" --display-sync-status "* ) ]]; then
+  mkdir "$FAKE_CLOUD_LOCK" 2>/dev/null || {
+    echo "The database is currently locked by another process - cannot sync" >&2
+    exit 1
+  }
+  trap 'rmdir "$FAKE_CLOUD_LOCK"' EXIT
+  sleep 0.2
+fi
 sync_dir="${FAKE_SYNC_DIR:?}"
 if [[ -n $confdir && -f "$confdir/config" ]]; then
   from_config=$(sed -n 's/^sync_dir *= *"\(.*\)"$/\1/p' "$confdir/config" | head -1)
@@ -319,7 +327,7 @@ jq -e '
 ' "$test_root/recovered-network.json" >/dev/null
 
 remote_output="$test_root/remote.json"
-python3 "$root/onedrive-status.py" --remote --limit 5 >"$remote_output"
+FAKE_CLOUD_LOCK="$test_root/cloud-client.lock" python3 "$root/onedrive-status.py" --remote --limit 5 >"$remote_output"
 jq -e '
   .quotaKnown == true
   and .usedBytes == 2000000000

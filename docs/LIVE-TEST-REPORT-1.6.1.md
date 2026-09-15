@@ -1,5 +1,8 @@
 # OmaOneDrive 1.6.1 verification
 
+The previously pending real two-account checks are now completed in the
+[1.6.2 live verification report](LIVE-TEST-REPORT-1.6.2.md).
+
 Verified on September 15, 2026, on Omarchy 4.0.3 with the OneDrive Linux client
 2.5.11. The running control implementation was commit `17e5344`; the release
 adds version metadata, this report, and the changelog without further runtime

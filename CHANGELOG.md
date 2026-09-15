@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2 - 2026-09-15
+
+- Run combined storage and sync-status checks sequentially for each account.
+  Concurrent OneDrive client commands could contend for the same database and
+  report a failed cloud check even when the account was up to date.
+- Complete real two-account transfer, pause isolation, automatic resume,
+  shell-restart, and desktop verification. See the live verification report.
+
 ## 1.6.1 - 2026-09-15
 
 - Return `busy` when an IPC pause, timed pause, resume, or toggle cannot start

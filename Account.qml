@@ -498,17 +498,21 @@ Item {
   }
 
   function pause() {
-    if (busy) return
+    if (busy) return "busy"
+    if (!installed || !serviceAvailable) return "unavailable"
     _pauseMinutes = 0
     cancelResumeTimer("pause")
+    return "ok"
   }
 
   function pauseFor(minutes) {
     var requested = parseInt(String(minutes), 10)
-    if (!isFinite(requested) || requested <= 0) return
+    if (!isFinite(requested) || requested <= 0) return "invalid duration"
     var duration = Math.max(5, Math.min(1440, requested))
-    if (!installed || !serviceAvailable || !authenticated || busy
-        || serviceFailed || resyncRequired || reauthRequired) return
+    if (busy) return "busy"
+    if (!installed || !serviceAvailable) return "unavailable"
+    if (!authenticated) return "login required"
+    if (serviceFailed || resyncRequired || reauthRequired) return "attention required"
     // No derivable resume unit means no timer can be scheduled for this account.
     // An untimed pause is honest; a timer that collides with another account is
     // not. Say so, or the user gets an indefinite pause from a button labelled
@@ -517,25 +521,27 @@ Item {
       actionStatus = "Paused — no resume timer is available for this account"
       actionStatusTimer.restart()
       pause()
-      return
+      return "no resume timer"
     }
     _pauseMinutes = duration
     cancelResumeTimer("pause")
+    return "ok"
   }
 
   function resume() {
+    if (busy) return "busy"
+    if (!installed || !serviceAvailable) return "unavailable"
     if (!authenticated) {
       login()
-      return
+      return "login required"
     }
-    if (busy) return
     _pauseMinutes = 0
     cancelResumeTimer("resume")
+    return "ok"
   }
 
   function toggleRunning() {
-    if (active) pause()
-    else resume()
+    return active ? pause() : resume()
   }
 
   function runControl(command, desired) {

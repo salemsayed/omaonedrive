@@ -128,6 +128,12 @@ omarchy-shell io.github.salemsayed.omaonedrive pause     # pauseFor 60, resume
 omarchy-shell io.github.salemsayed.omaonedrive folder
 ```
 
+The `pause`, `pauseFor`, `resume`, and `toggleSync` replies report whether the
+control was accepted. `ok` means it started; `busy` means a refresh or another
+control is still running, so retry after it finishes. This can happen immediately
+after `selectAccount`, which refreshes the selected account. Other replies explain
+why the control cannot start. Check the account's status to confirm completion.
+
 ## Remove
 
 ```bash

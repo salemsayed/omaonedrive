@@ -689,9 +689,15 @@ Item {
       else if (s === 52) {
         console.log("pause and resume reach the selected account's own units")
         svc.selectAccount("onedrive@b.service", false)
+        harness.check(svc.pause() === "busy", "pause reports the selection refresh instead of false success")
+        harness.check(svc.pauseFor(5) === "busy", "timed pause reports the selection refresh")
+        harness.check(svc.resume() === "busy", "resume reports the selection refresh")
+        harness.check(svc.toggleRunning() === "busy", "toggle reports the selection refresh")
+        harness.check(harness.liveWith("systemctl").length === 0,
+          "a busy response issues no service or timer command")
         harness.drain(harness.statusPayload({
           syncDir: "/d/b", running: false, activeState: "inactive" }))
-        svc.resume()
+        harness.check(svc.resume() === "ok", "retry after refresh accepts the resume")
         harness.check(harness.liveWith("omaonedrive-resume@b").length === 1,
           "resume first cancels the selected account's OWN resume timer")
         harness.check(harness.liveWith("omaonedrive-resume@a").length === 0,
@@ -713,7 +719,7 @@ Item {
         svc.selectAccount("onedrive@a.service", false)
         harness.drain(harness.statusPayload({
           syncDir: "/d/a", running: true, activeState: "active" }))
-        svc.pause()
+        harness.check(svc.pause() === "ok", "an available pause reports acceptance")
         harness.check(harness.liveWith("omaonedrive-resume@a").length === 1,
           "pause cancels the selected account's own resume timer")
         harness.check(harness.liveWith("omaonedrive-resume@b").length === 0,
@@ -1945,6 +1951,7 @@ Item {
         harness.check(harness.liveWith("omaonedrive-resume@a").length === 1,
           "the resume-timer cancel is in flight")
         harness.check(svc.accounts[0].busy === true, "...and the account is busy")
+        harness.check(svc.resume() === "busy", "an in-flight control also returns busy to IPC callers")
         // It never exits.
       }
 
@@ -2355,7 +2362,37 @@ Item {
         harness.drain(harness.statusPayload({}))
       }
 
-      else if (s >= 211) {
+      else if (s >= 211 && s <= 213) {
+        harness.drain(harness.statusPayload({}))
+      }
+
+      else if (s === 214) {
+        var account = svc.selectedAccount
+        harness.check(account !== null && !account.busy, "control rejection checks start with an idle account")
+        harness.check(svc.pauseFor(0) === "invalid duration", "an invalid timed pause reports its rejection")
+        account.serviceAvailable = false
+        harness.check(svc.pause() === "unavailable", "pause reports an unavailable service")
+        harness.check(svc.resume() === "unavailable", "resume reports an unavailable service")
+        harness.check(svc.pauseFor(5) === "unavailable", "timed pause reports an unavailable service")
+        account.serviceAvailable = true
+        account.reauthRequired = true
+        harness.check(svc.pauseFor(5) === "attention required", "timed pause reports required account repair")
+        account.reauthRequired = false
+        account.authenticated = false
+        harness.check(svc.pauseFor(5) === "login required", "timed pause reports missing authentication")
+        harness.check(harness.liveWith("systemctl").length === 0, "rejected controls leave services untouched")
+        var tracked = svc.accounts.slice()
+        for (var i = 0; i < tracked.length; i++) svc.untrackAccount(tracked[i])
+      }
+
+      else if (s === 215) {
+        harness.check(svc.pause() === "no accounts", "pause reports no selected account")
+        harness.check(svc.pauseFor(5) === "no accounts", "timed pause reports no selected account")
+        harness.check(svc.resume() === "no accounts", "resume reports no selected account")
+        harness.check(svc.toggleRunning() === "no accounts", "toggle reports no selected account")
+      }
+
+      else if (s >= 216) {
         // The count is printed so tests/run can tell "every check passed" from
         // "no check ran": a qml that exits 0 without executing the harness, or a
         // step loop that stops early, both used to read as success.

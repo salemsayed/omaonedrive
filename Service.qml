@@ -453,10 +453,10 @@ Item {
   function openWeb() { if (selectedAccount) selectedAccount.openWeb() }
   function openFolder() { if (selectedAccount) selectedAccount.openFolder() }
   function openFile(file) { if (selectedAccount) selectedAccount.openFile(file) }
-  function pause() { if (selectedAccount) selectedAccount.pause() }
-  function pauseFor(minutes) { if (selectedAccount) selectedAccount.pauseFor(minutes) }
-  function resume() { if (selectedAccount) selectedAccount.resume() }
-  function toggleRunning() { if (selectedAccount) selectedAccount.toggleRunning() }
+  function pause() { return selectedAccount ? selectedAccount.pause() : "no accounts" }
+  function pauseFor(minutes) { return selectedAccount ? selectedAccount.pauseFor(minutes) : "no accounts" }
+  function resume() { return selectedAccount ? selectedAccount.resume() : "no accounts" }
+  function toggleRunning() { return selectedAccount ? selectedAccount.toggleRunning() : "no accounts" }
 
   // --- wiring ---------------------------------------------------------------
 

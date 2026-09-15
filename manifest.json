@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.salemsayed.omaonedrive",
   "name": "OmaOneDrive",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "author": "Salem Sayed",
   "license": "MIT",
   "description": "OneDrive status, timed pause controls, cloud storage, and recent sync activity in the Omarchy bar, for one account or several.",

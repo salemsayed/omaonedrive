@@ -109,20 +109,16 @@ BarWidget {
       return "ok"
     }
     function pause(): string {
-      if (root.service) root.service.pause()
-      return "ok"
+      return root.service ? root.service.pause() : "no accounts"
     }
     function pauseFor(minutes: int): string {
-      if (root.service) root.service.pauseFor(minutes)
-      return "ok"
+      return root.service ? root.service.pauseFor(minutes) : "no accounts"
     }
     function resume(): string {
-      if (root.service) root.service.resume()
-      return "ok"
+      return root.service ? root.service.resume() : "no accounts"
     }
     function toggleSync(): string {
-      if (root.service) root.service.toggleRunning()
-      return "ok"
+      return root.service ? root.service.toggleRunning() : "no accounts"
     }
     function folder(): string {
       if (root.service) root.service.openFolder()

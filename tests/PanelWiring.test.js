@@ -137,10 +137,10 @@ test("every IPC control routes to the coordinator, and none of them to another o
     'function refresh(): string { if (root.service) root.service.refresh(false) return "ok" } ' +
     'function check(): string { if (root.service) root.service.checkQuota() return "ok" } ' +
     'function fullStatus(): string { if (root.service) root.service.checkFullStatus() return "ok" } ' +
-    'function pause(): string { if (root.service) root.service.pause() return "ok" } ' +
-    'function pauseFor(minutes: int): string { if (root.service) root.service.pauseFor(minutes) return "ok" } ' +
-    'function resume(): string { if (root.service) root.service.resume() return "ok" } ' +
-    'function toggleSync(): string { if (root.service) root.service.toggleRunning() return "ok" } ' +
+    'function pause(): string { return root.service ? root.service.pause() : "no accounts" } ' +
+    'function pauseFor(minutes: int): string { return root.service ? root.service.pauseFor(minutes) : "no accounts" } ' +
+    'function resume(): string { return root.service ? root.service.resume() : "no accounts" } ' +
+    'function toggleSync(): string { return root.service ? root.service.toggleRunning() : "no accounts" } ' +
     'function folder(): string { if (root.service) root.service.openFolder() return "ok" } ' +
     'function web(): string { if (root.service) root.service.openWeb() return "ok" } ' +
     'function resync(): string { if (root.service) root.service.repairResync() return "ok" } ' +

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.1 - 2026-09-15
+
+- Return `busy` when an IPC pause, timed pause, resume, or toggle cannot start
+  during an account refresh or another control. Previously these requests
+  returned `ok` even when they did nothing, including immediately after
+  `selectAccount`. Scripts can now retry and distinguish acceptance from rejection.
+- Report unavailable services, invalid pause durations, and account requirements
+  through the same IPC control replies.
+
 ## 1.6.0 - 2026-09-15
 
 - Fix panel dismissal on Omarchy 4.0.3 by using the bar API setter and hiding

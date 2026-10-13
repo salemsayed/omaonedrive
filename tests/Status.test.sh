@@ -280,13 +280,18 @@ case " $* " in
     ;;
   *" show "*)
     active=${FAKE_ACTIVE:-active}
+    enabled=${FAKE_ENABLED:-enabled}
+    if [[ $scope == user ]]; then
+      active=${FAKE_USER_ACTIVE:-$active}
+      enabled=${FAKE_USER_ENABLED:-$enabled}
+    fi
     sub_state=dead
     [[ $active == active ]] && sub_state=running
     cat <<OUT
 LoadState=loaded
 ActiveState=$active
 SubState=$sub_state
-UnitFileState=${FAKE_ENABLED:-enabled}
+UnitFileState=$enabled
 Result=${FAKE_RESULT:-success}
 ExecMainCode=exited
 ExecMainStatus=${FAKE_EXIT_STATUS:-0}
@@ -683,6 +688,36 @@ jq -e --arg me "$me" '
 ' "$test_root/accounts-copied.json" >/dev/null
 rm "$system_units/multi-user.target.wants/onedrive-team@$me.service"
 
+# The same name in both managers is one account: the one actually in use. An
+# idle user copy must not hide a running system unit, or "resume" would start a
+# second client on the same database.
+FAKE_USER_ACTIVE=inactive FAKE_USER_ENABLED=disabled \
+  FAKE_UNITS="$copied_units" FAKE_SYSTEM_UNITS="$system_listed" \
+  python3 "$root/onedrive-status.py" --list-accounts >"$test_root/accounts-in-use.json"
+jq -e '
+  [.[] | select(.service == "onedrive@personal.service")] as $p
+  | ($p | length) == 1
+  and $p[0].scope == "system"
+  and $p[0].confdir == "/srv/onedrive/system/DUPLICATE"
+' "$test_root/accounts-in-use.json" >/dev/null
+
+# Short names are labels and IPC targets, so each names one account. The
+# historical spellings keep theirs; a later claimant falls back to its unit name.
+FAKE_UNITS=$'onedrive.service loaded active running OneDrive Client for Linux
+onedrive-work.service loaded active running OneDrive Client for Linux
+onedrive@work.service loaded inactive dead OneDrive sync (work account)' \
+  FAKE_SYSTEM_UNITS="onedrive@$me.service loaded active running OneDrive" \
+  python3 "$root/onedrive-status.py" --list-accounts >"$test_root/accounts-keys.json"
+jq -e --arg me "$me" '
+  (map({key: .service, value: .instance}) | from_entries) as $key
+  | length == 4
+  and ([.[].instance] | unique | length) == 4
+  and $key["onedrive.service"] == ""
+  and $key["onedrive@work.service"] == "work"
+  and $key["onedrive-work.service"] == "onedrive-work"
+  and $key["onedrive@\($me).service"] == "onedrive@\($me)"
+' "$test_root/accounts-keys.json" >/dev/null
+
 # Each discovered name must pass the --service gate it will be handed back to.
 for service in onedrive-work.service "onedrive-team@$me.service"; do
   python3 "$root/onedrive-status.py" --service "$service" --list-accounts >/dev/null
@@ -715,6 +750,14 @@ if grep -q 'list-timers' "$FAKE_SYSTEMCTL_LOG"; then
   echo "a system account read a user resume timer" >&2
   exit 1
 fi
+# A system unit that runs as someone else is not ours to report on, even when
+# the caller supplies a config directory.
+: >"$FAKE_JOURNAL_LOG"
+python3 "$root/onedrive-status.py" --service onedrive@someone-else.service --scope system \
+  --confdir "$test_home/.config/onedrive" --limit 5 >"$test_root/system-foreign.json"
+jq -e '.confdir == "" and .serviceAvailable == false and .authenticated == false' \
+  "$test_root/system-foreign.json" >/dev/null
+[[ ! -s $FAKE_JOURNAL_LOG ]]
 # ...and a system unit named onedrive.service is root's, not the plain account.
 FAKE_SYSTEM_UNITS="$system_listed" python3 "$root/onedrive-status.py" \
   --scope system --limit 5 >"$test_root/system-root.json"

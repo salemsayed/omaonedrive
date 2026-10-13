@@ -810,8 +810,8 @@ function resolveAccountTarget(accounts, target) {
   var wanted = String(target || "")
   // The plain account's instance IS "", so an unset argument would otherwise
   // match it and silently retarget every later control at the default account.
-  // (No account key can equal "" today, so this guard cannot currently be
-  // observed failing -- it is here so that stops being an accident.)
+  // Discovery keeps every short name unique, including "", so an instance match
+  // names exactly one account.
   if (wanted === "") return ""
   var index
   for (index = 0; index < list.length; index++) {

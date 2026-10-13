@@ -272,12 +272,13 @@ def unit_properties(unit, names, scope=USER_SCOPE):
   return properties
 
 
-def service_state(service, scope=USER_SCOPE):
-  properties = unit_properties(
+def service_state(service, scope=USER_SCOPE, query=True):
+  # query=False describes a unit we may not report on as unavailable.
+  properties = (unit_properties(
     service,
     ["LoadState", "ActiveState", "SubState", "UnitFileState", "Result", "ExecMainCode", "ExecMainStatus"],
     scope,
-  ) or {}
+  ) if query else None) or {}
   properties = {key: values[0] for key, values in properties.items()}
   load_state = properties.get("LoadState", "")
   active_state = properties.get("ActiveState", "")
@@ -652,24 +653,76 @@ def account_entry(unit, scope=USER_SCOPE):
   }
 
 
+def unit_in_use(entry):
+  state = service_state(entry["service"], entry["scope"])
+  return (state["running"] or state["activeState"] == "activating", state["enabled"])
+
+
+def plain_user_unit(entry):
+  # The spellings the widget has always discovered. They keep their short names
+  # when another account would take the same one, so a script that has been
+  # targeting "work" keeps reaching onedrive@work.service.
+  if entry["scope"] != USER_SCOPE:
+    return False
+  match = ONEDRIVE_UNIT_PATTERN.fullmatch(entry["service"])
+  return match is not None and not match.group("name")
+
+
+def unique_account_keys(accounts):
+  """Make every short name unique, so a label or IPC target names one account.
+
+  "onedrive@work", "onedrive-work" and a system "onedrive-work@<us>" would all
+  be "work", and a system "onedrive@<us>" is "" like the plain onedrive.service.
+  The first claimant in priority order keeps the short name; the others fall back
+  to their unit name, which is unique by construction.
+  """
+  order = sorted(
+    range(len(accounts)),
+    key=lambda index: (
+      not plain_user_unit(accounts[index]),
+      accounts[index]["scope"] != USER_SCOPE,
+      accounts[index]["service"],
+    ),
+  )
+  taken = set()
+  for index in order:
+    entry = accounts[index]
+    if entry["instance"] in taken:
+      entry["instance"] = entry["service"][: -len(".service")]
+    if entry["instance"] in taken:
+      entry["instance"] = entry["service"]
+    taken.add(entry["instance"])
+  return accounts
+
+
 def discover_accounts():
-  accounts = []
-  seen = set()
-  # User units first: the service name is the account's key everywhere in the
-  # widget, so a same-named system unit cannot be a second account, and the
-  # user unit is the one the widget can control without a password.
+  by_service = {}
   for scope in SCOPES:
     for unit in onedrive_unit_names(scope):
-      if unit in seen:
+      if (unit, scope) in by_service:
         continue
       entry = account_entry(unit, scope)
-      if entry:
-        seen.add(unit)
-        accounts.append(entry)
+      if entry is None:
+        continue
+      other = by_service.get((unit, USER_SCOPE)) if scope == SYSTEM_SCOPE else None
+      if other is not None:
+        # The service name is the account's key everywhere in the widget, so the
+        # same name in both managers can only be one account. Keep the one that
+        # is actually in use: dropping a running system unit for an idle user
+        # copy would show it stopped, and "resume" would then start a second
+        # client on the same database. With neither (or both) in use, the user
+        # unit wins, as it can be controlled without a password.
+        if unit_in_use(entry) > unit_in_use(other):
+          del by_service[(unit, USER_SCOPE)]
+        else:
+          continue
+      by_service[(unit, scope)] = entry
+  accounts = list(by_service.values())
   if not accounts:
     # No systemd, no systemctl, or nothing enabled: degrade to the single
     # default account so callers still get a usable list.
     return [default_account()]
+  unique_account_keys(accounts)
   accounts.sort(key=lambda row: (row["instance"], row["service"]))
   return accounts
 
@@ -1040,7 +1093,12 @@ def status_text(installed, authenticated, service, journal, resume_at=0):
 
 def build_status(args):
   onedrive_path = shutil.which("onedrive")
-  if args.confdir:
+  # A system unit is this user's account only if it runs as this user, whatever
+  # --confdir says; otherwise its state and journal belong to someone else.
+  foreign = args.scope == SYSTEM_SCOPE and account_entry(args.service, args.scope) is None
+  if foreign:
+    confdir = None
+  elif args.confdir:
     confdir = canonical_confdir(args.confdir)
   elif args.service != DEFAULT_SERVICE or args.scope != USER_SCOPE:
     # Asked about another account but told nothing about where it lives: read the
@@ -1059,7 +1117,7 @@ def build_status(args):
   }
   sync_dir = config["syncDir"]
   authenticated = confdir is not None and (confdir / "refresh_token").is_file()
-  service = service_state(args.service, args.scope)
+  service = service_state(args.service, args.scope, query=not foreign)
   # Each account schedules its own transient resume unit, so the caller names it.
   # Without the flag only the plain service has a well-known one --
   # DEFAULT_RESUME_UNIT starts onedrive.service, so its pending time belongs to

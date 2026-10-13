@@ -13,6 +13,9 @@
   pauses fall back to an untimed pause and explain why.
 - Give each copied unit its own resume timer, `omaonedrive-resume-<name>`, so it
   cannot collide with an `onedrive@<name>` account.
+- Keep account names unique. When two units would share a name, the existing
+  `onedrive@<name>` account keeps it and the other is named after its unit. If
+  a unit exists as both a user and a system unit, the one in use is shown.
 - Add a Support section to the README.
 
 ## 1.6.2 - 2026-09-15

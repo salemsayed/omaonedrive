@@ -87,8 +87,10 @@ path; `Commands.js` builds the command and includes the target account.
   `--confdir` is read out of `argv[]` — never guessed from the instance name.
   Every spelling but the plain user `onedrive` and `onedrive@<instance>` units
   must also have an `ExecStart` record that runs the client, so an unrelated
-  `onedrive-backup.service` is not an account. A system unit whose name a user
-  unit already uses is skipped;
+  `onedrive-backup.service` is not an account. A name present in both managers
+  is one account: the unit that is running, then enabled, wins, and the user unit
+  on a tie. A status call with `--scope system` reports nothing for a unit that
+  does not run as the current user, whatever `--confdir` it is given;
 - systemd enablement symlinks, `*.wants/onedrive*.service` and
   `*.requires/onedrive*.service`, under the user (`$XDG_CONFIG_HOME/systemd/user`
   or `~/.config/systemd/user`, and `$XDG_RUNTIME_DIR/systemd/user` when that
@@ -124,7 +126,9 @@ with no config directory, never as the default one. `--list-accounts` is a separ
 it prints a JSON array of the discovered accounts (`service`, `instance`,
 `scope`, `confdir`, `description`). `instance` is the account's short name —
 `personal` for `onedrive@personal`, `work` for `onedrive-work` — and drops a
-system unit's `@<user>`, which only names the current user. `scope` is `user` or
+system unit's `@<user>`, which only names the current user. Short names are
+unique: the plain user spellings keep theirs, and any later account that would
+share one is named by its unit instead (`onedrive-work`, `onedrive@<user>`). `scope` is `user` or
 `system`, and `--scope system` makes a status call read the unit from the system
 manager and journal, with no resume timer and exits without building a status object or invoking
 the OneDrive client at all, falling back to the single default account when

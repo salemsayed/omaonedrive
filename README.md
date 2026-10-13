@@ -67,9 +67,25 @@ and only one account is read at a time. At startup a faster ramp runs until ever
 account has reported once. Cloud checks stay manual and run one at a time across
 all accounts.
 
-Accounts are found by reading each `onedrive` systemd user unit's own
-`ExecStart` for its `--confdir`, so an instance pointed at an unrelated
-directory is still found correctly. Nothing is guessed from unit names.
+Accounts are found by reading each OneDrive unit's own `ExecStart` for its
+`--confdir`, so a unit pointed at an unrelated directory is still found
+correctly. Every layout the client's
+[multi-account guide](https://github.com/abraunegg/onedrive/blob/master/docs/advanced-usage.md)
+describes is recognised:
+
+| Unit | Shown as |
+| --- | --- |
+| `onedrive.service` (user) | OneDrive |
+| `onedrive@personal.service` (user template instance) | Personal |
+| `onedrive-work.service` (user, copied unit) | Work |
+| `onedrive@<you>.service` (system, `User=<you>`) | OneDrive |
+| `onedrive-work@<you>.service` (system, copied unit) | Work |
+
+Each unit must be enabled or running, and must run the `onedrive` client. A
+system unit is listed only when it runs as you. Pausing a system unit goes through
+polkit, so you need an authentication agent or a polkit rule that allows it.
+Timed pauses are not available for system units, because the resume timer is a
+user unit and cannot start a system service.
 
 ## Requirements
 
@@ -150,10 +166,22 @@ rm -r -- "$HOME/.local/state/omarchy/io.github.salemsayed.omaonedrive"
 ## What it never does
 
 No uploads, downloads, deletions, resyncs, logouts or configuration edits
-of its own. Pause and resume are `systemctl --user stop/start
-onedrive.service`; a timed pause is a transient user timer that only starts
-that service again. Login and reauthentication open the client in a
+of its own. Pause and resume are `systemctl --user stop/start` on the
+account's own unit (`systemctl stop/start` for a system unit); a timed pause is
+a transient user timer that only starts that service again. Login and reauthentication open the client in a
 terminal. The refresh token is never read, copied or stored.
+
+## Support
+
+Questions, bug reports and feature requests go to
+[GitHub issues](https://github.com/salemsayed/omaonedrive/issues). For an
+account that is missing from the panel, include the output of:
+
+```bash
+systemctl --user list-units 'onedrive*' --all
+systemctl list-units 'onedrive*' --all
+python3 ~/.config/omarchy/plugins/io.github.salemsayed.omaonedrive/onedrive-status.py --list-accounts
+```
 
 ## License
 

@@ -40,6 +40,7 @@ test("accounts() reports every account, in discovery order, with one selected", 
   assert.deepEqual(rows[1], {
     service: "onedrive@personal.service",
     instance: "personal",
+    scope: "user",
     name: "personal",
     selected: true,
     status: "Monitoring"

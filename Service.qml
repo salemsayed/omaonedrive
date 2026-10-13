@@ -146,6 +146,7 @@ Item {
     return {
       service: String(row.service || ""),
       instance: String(row.instance || ""),
+      scope: String(row.scope || "user"),
       confdir: String(row.confdir || ""),
       description: String(row.description || "")
     }
@@ -157,6 +158,7 @@ Item {
     return {
       service: Commands.DEFAULT_SERVICE,
       instance: "",
+      scope: "user",
       confdir: "",
       description: ""
     }
@@ -476,6 +478,7 @@ Item {
       required property var model
       service: model.service
       instance: model.instance
+      scope: model.scope
       confdir: model.confdir
       description: model.description
       settings: root.settings

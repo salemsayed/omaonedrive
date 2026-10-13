@@ -84,12 +84,15 @@ cat >"$fake_bin/systemctl" <<'SH'
 #!/bin/bash
 unit=""
 timer=""
+scope=system
 for argument in "$@"; do
   case "$argument" in
+    --user) scope=user ;;
     *.service) unit="$argument" ;;
     *.timer) timer="$argument" ;;
   esac
 done
+[[ -n ${FAKE_SYSTEMCTL_LOG:-} ]] && printf '%s\n' "$*" >>"$FAKE_SYSTEMCTL_LOG"
 case " $* " in
   *" list-timers "*)
     # Only the unit actually asked for reports a pending resume, so an account
@@ -112,6 +115,10 @@ case " $* " in
     if [[ ${FAKE_NO_SYSTEMD:-0} == 1 ]]; then
       exit 1
     fi
+    if [[ $scope == system ]]; then
+      [[ -n ${FAKE_SYSTEM_UNITS:-} ]] && printf '%s\n' "$FAKE_SYSTEM_UNITS"
+      exit 0
+    fi
     if [[ -n ${FAKE_UNITS:-} ]]; then
       printf '%s\n' "$FAKE_UNITS"
     fi
@@ -123,7 +130,63 @@ case " $* " in
     fi
     load=loaded
     extra=""
+    if [[ $scope == system ]]; then
+      # The shipped system template runs as the user named by its instance;
+      # the client's guide copies it as onedrive-<name>@.service.
+      me=$(id -un)
+      case "$unit" in
+        "onedrive@$me.service")
+          user=$me
+          description="OneDrive Client for Linux running for $me"
+          args="--monitor --confdir=/srv/onedrive/system/$me"
+          ;;
+        "onedrive-team@$me.service")
+          user=$(id -u)
+          description="OneDrive Client for Linux running for $me"
+          args='--monitor --confdir=/srv/onedrive/system/team'
+          ;;
+        onedrive@personal.service)
+          # Same name as a user unit: the user unit is the account.
+          user=$me
+          description='System duplicate'
+          args='--monitor --confdir=/srv/onedrive/system/DUPLICATE'
+          ;;
+        onedrive@someone-else.service)
+          user=someone-else
+          description='OneDrive Client for Linux running for someone-else'
+          args='--monitor --confdir=/home/someone-else/.config/onedrive'
+          ;;
+        onedrive.service)
+          # Runs as root: root's config directory, not ours.
+          user=''
+          description='OneDrive Client for Linux'
+          args='--monitor'
+          ;;
+        *) exit 1 ;;
+      esac
+      echo "LoadState=$load"
+      echo "Description=$description"
+      echo "ExecStart={ path=/usr/bin/onedrive ; argv[]=/usr/bin/onedrive $args ; ignore_errors=no ; start_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+      echo "User=$user"
+      exit 0
+    fi
     case "$unit" in
+      onedrive-work.service)
+        # The copy the client's multi-account guide tells people to make.
+        description='OneDrive Client for Linux'
+        args='--monitor --confdir=/srv/onedrive/copied/work'
+        ;;
+      onedrive-home.service)
+        description='OneDrive Client for Linux'
+        args='--monitor --confdir /srv/onedrive/copied/home'
+        ;;
+      onedrive-backup.service)
+        # Named like an account, but it does not run the client.
+        description='Back up the OneDrive folder'
+        path=/usr/bin/rsync
+        argv0=/usr/bin/rsync
+        args='-a --confdir=/srv/onedrive/NOT-AN-ACCOUNT /backup'
+        ;;
       onedrive.service)
         description='OneDrive Client for Linux'
         args='--monitor'
@@ -209,7 +272,7 @@ case " $* " in
     echo "Description=$description"
     [[ -n $extra ]] && echo "$extra"
     if [[ -n $args ]]; then
-      echo "ExecStart={ path=${path:-/usr/bin/onedrive} ; argv[]=/usr/bin/onedrive $args ; ignore_errors=no ; start_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+      echo "ExecStart={ path=${path:-/usr/bin/onedrive} ; argv[]=${argv0:-/usr/bin/onedrive} $args ; ignore_errors=no ; start_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
     else
       echo 'ExecStart='
     fi
@@ -217,13 +280,18 @@ case " $* " in
     ;;
   *" show "*)
     active=${FAKE_ACTIVE:-active}
+    enabled=${FAKE_ENABLED:-enabled}
+    if [[ $scope == user ]]; then
+      active=${FAKE_USER_ACTIVE:-$active}
+      enabled=${FAKE_USER_ENABLED:-$enabled}
+    fi
     sub_state=dead
     [[ $active == active ]] && sub_state=running
     cat <<OUT
 LoadState=loaded
 ActiveState=$active
 SubState=$sub_state
-UnitFileState=${FAKE_ENABLED:-enabled}
+UnitFileState=$enabled
 Result=${FAKE_RESULT:-success}
 ExecMainCode=exited
 ExecMainStatus=${FAKE_EXIT_STATUS:-0}
@@ -235,6 +303,7 @@ SH
 
 cat >"$fake_bin/journalctl" <<'SH'
 #!/bin/bash
+[[ -n ${FAKE_JOURNAL_LOG:-} ]] && printf '%s\n' "$*" >>"$FAKE_JOURNAL_LOG"
 cat <<'OUT'
 {"MESSAGE":"Starting a sync with Microsoft OneDrive","__REALTIME_TIMESTAMP":"1786787990000000"}
 OUT
@@ -273,6 +342,9 @@ export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
 export XDG_STATE_HOME="$test_root/state"
 export OMAONEDRIVE_UNIT_ROOTS="$test_home/.config/systemd/user"
+system_units="$test_root/system-units"
+mkdir -p "$system_units"
+export OMAONEDRIVE_SYSTEM_UNIT_ROOTS="$system_units"
 export PATH="$fake_bin:$PATH"
 
 local_output="$test_root/local.json"
@@ -570,6 +642,133 @@ jq -e '
 # Remove it again: a leftover enablement symlink is a real discovery source and
 # would otherwise add a fourth account to every later assertion.
 rm "$test_home/.config/systemd/user/default.target.wants/onedrive@work.service"
+
+# The client's multi-account guide does not use templates: it copies the shipped
+# unit to onedrive-<name>.service (user) or onedrive-<name>@<user>.service
+# (system), and Arch users are also pointed at the system template
+# onedrive@<user>.service. Every one of those is an account -- as long as it
+# runs the client, and, for a system unit, runs it as us.
+me=$(id -un)
+copied_units=$'onedrive-work.service loaded active running OneDrive Client for Linux
+onedrive-home.service loaded inactive dead OneDrive Client for Linux
+onedrive-backup.service loaded inactive dead Back up the OneDrive folder
+onedrive-work@.service loaded inactive dead OneDrive template
+onedrive@personal.service loaded active running OneDrive sync (personal account)'
+system_listed="onedrive@$me.service loaded active running OneDrive Client for Linux running for $me
+onedrive@personal.service loaded active running System duplicate
+onedrive@someone-else.service loaded active running OneDrive Client for Linux running for someone-else
+onedrive.service loaded active running OneDrive Client for Linux"
+# Enabled but never started, so only its enablement symlink shows it.
+mkdir -p "$system_units/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/onedrive-team@.service \
+  "$system_units/multi-user.target.wants/onedrive-team@$me.service"
+FAKE_UNITS="$copied_units" FAKE_SYSTEM_UNITS="$system_listed" \
+  python3 "$root/onedrive-status.py" --list-accounts >"$test_root/accounts-copied.json"
+jq -e --arg me "$me" '
+  (map({key: .service, value: .}) | from_entries) as $by
+  | length == 5
+  and ([.[].service] | index("onedrive-backup.service")) == null
+  and ([.[].service] | index("onedrive-work@.service")) == null
+  and ([.[].service] | index("onedrive@someone-else.service")) == null
+  and ([.[].service] | index("onedrive.service")) == null
+  and ([.[] | select(.confdir | test("DUPLICATE|NOT-AN-ACCOUNT"))] | length) == 0
+  and $by["onedrive-work.service"].instance == "work"
+  and $by["onedrive-work.service"].scope == "user"
+  and $by["onedrive-work.service"].confdir == "/srv/onedrive/copied/work"
+  and $by["onedrive-home.service"].instance == "home"
+  and $by["onedrive-home.service"].confdir == "/srv/onedrive/copied/home"
+  and $by["onedrive@personal.service"].scope == "user"
+  and $by["onedrive@personal.service"].confdir == "/srv/onedrive/mailboxes/alpha"
+  and $by["onedrive@\($me).service"].scope == "system"
+  and $by["onedrive@\($me).service"].instance == ""
+  and $by["onedrive@\($me).service"].confdir == "/srv/onedrive/system/\($me)"
+  and $by["onedrive-team@\($me).service"].scope == "system"
+  and $by["onedrive-team@\($me).service"].instance == "team"
+  and $by["onedrive-team@\($me).service"].confdir == "/srv/onedrive/system/team"
+' "$test_root/accounts-copied.json" >/dev/null
+rm "$system_units/multi-user.target.wants/onedrive-team@$me.service"
+
+# The same name in both managers is one account: the one actually in use. An
+# idle user copy must not hide a running system unit, or "resume" would start a
+# second client on the same database.
+FAKE_USER_ACTIVE=inactive FAKE_USER_ENABLED=disabled \
+  FAKE_UNITS="$copied_units" FAKE_SYSTEM_UNITS="$system_listed" \
+  python3 "$root/onedrive-status.py" --list-accounts >"$test_root/accounts-in-use.json"
+jq -e '
+  [.[] | select(.service == "onedrive@personal.service")] as $p
+  | ($p | length) == 1
+  and $p[0].scope == "system"
+  and $p[0].confdir == "/srv/onedrive/system/DUPLICATE"
+' "$test_root/accounts-in-use.json" >/dev/null
+
+# Short names are labels and IPC targets, so each names one account. The
+# historical spellings keep theirs; a later claimant falls back to its unit name.
+FAKE_UNITS=$'onedrive.service loaded active running OneDrive Client for Linux
+onedrive-work.service loaded active running OneDrive Client for Linux
+onedrive@work.service loaded inactive dead OneDrive sync (work account)' \
+  FAKE_SYSTEM_UNITS="onedrive@$me.service loaded active running OneDrive" \
+  python3 "$root/onedrive-status.py" --list-accounts >"$test_root/accounts-keys.json"
+jq -e --arg me "$me" '
+  (map({key: .service, value: .instance}) | from_entries) as $key
+  | length == 4
+  and ([.[].instance] | unique | length) == 4
+  and $key["onedrive.service"] == ""
+  and $key["onedrive@work.service"] == "work"
+  and $key["onedrive-work.service"] == "onedrive-work"
+  and $key["onedrive@\($me).service"] == "onedrive@\($me)"
+' "$test_root/accounts-keys.json" >/dev/null
+
+# Each discovered name must pass the --service gate it will be handed back to.
+for service in onedrive-work.service "onedrive-team@$me.service"; do
+  python3 "$root/onedrive-status.py" --service "$service" --list-accounts >/dev/null
+done
+if python3 "$root/onedrive-status.py" --scope machine --list-accounts >/dev/null 2>&1; then
+  echo "--scope accepted a manager that does not exist" >&2
+  exit 1
+fi
+
+# A system account is read from the system manager and the system journal, and
+# never borrows a user resume timer -- not even the plain one.
+# Their own state directory, so these polls add no caches to the counts below.
+export XDG_STATE_HOME="$test_root/state-scope"
+export FAKE_SYSTEMCTL_LOG="$test_root/systemctl.log"
+export FAKE_JOURNAL_LOG="$test_root/journalctl.log"
+: >"$FAKE_SYSTEMCTL_LOG"
+: >"$FAKE_JOURNAL_LOG"
+FAKE_RESUME_AT=$(( $(date +%s) + 600 )) python3 "$root/onedrive-status.py" \
+  --service "onedrive@$me.service" --scope system --limit 5 >"$test_root/system-status.json"
+jq -e --arg me "$me" '
+  .ok == true and .confdir == "/srv/onedrive/system/\($me)" and .resumeAt == 0
+' "$test_root/system-status.json" >/dev/null
+if grep -q -- '--user' "$FAKE_SYSTEMCTL_LOG" "$FAKE_JOURNAL_LOG"; then
+  echo "a system account was read through the user manager" >&2
+  cat "$FAKE_SYSTEMCTL_LOG" "$FAKE_JOURNAL_LOG" >&2
+  exit 1
+fi
+grep -q -- "--unit onedrive@$me.service" "$FAKE_JOURNAL_LOG"
+if grep -q 'list-timers' "$FAKE_SYSTEMCTL_LOG"; then
+  echo "a system account read a user resume timer" >&2
+  exit 1
+fi
+# A system unit that runs as someone else is not ours to report on, even when
+# the caller supplies a config directory.
+: >"$FAKE_JOURNAL_LOG"
+python3 "$root/onedrive-status.py" --service onedrive@someone-else.service --scope system \
+  --confdir "$test_home/.config/onedrive" --limit 5 >"$test_root/system-foreign.json"
+jq -e '.confdir == "" and .serviceAvailable == false and .authenticated == false' \
+  "$test_root/system-foreign.json" >/dev/null
+[[ ! -s $FAKE_JOURNAL_LOG ]]
+# ...and a system unit named onedrive.service is root's, not the plain account.
+FAKE_SYSTEM_UNITS="$system_listed" python3 "$root/onedrive-status.py" \
+  --scope system --limit 5 >"$test_root/system-root.json"
+jq -e '.confdir == "" and .authenticated == false and .resumeAt == 0' \
+  "$test_root/system-root.json" >/dev/null
+# The user side still reads through --user.
+: >"$FAKE_SYSTEMCTL_LOG"
+python3 "$root/onedrive-status.py" --service onedrive-work.service --limit 5 >/dev/null
+grep -q -- '--user show onedrive-work.service' "$FAKE_SYSTEMCTL_LOG"
+unset FAKE_SYSTEMCTL_LOG FAKE_JOURNAL_LOG
+export XDG_STATE_HOME="$test_root/state"
 
 python3 - "$root/onedrive-status.py" <<'ACCOUNTS_PY'
 import importlib.util

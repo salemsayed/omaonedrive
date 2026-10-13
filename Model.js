@@ -253,7 +253,8 @@ function heroMeta(status) {
 
 // --- multi-account aggregation ------------------------------------------------
 
-// "personal" -> "Personal", "work-mail" -> "Work Mail". The plain service has no
+// "personal" -> "Personal", "work-mail" -> "Work Mail", and a copied unit's
+// "work@salem" -> "Work (salem)". The plain service has no
 // instance and is simply "OneDrive", which is also the hero title, so a
 // single-account install reads exactly as it does today. The description is
 // accepted for callers that want it but is not used: systemd descriptions are
@@ -261,6 +262,10 @@ function heroMeta(status) {
 function accountName(instance, description) {
   var value = String(instance || "").trim()
   if (value === "") return "OneDrive"
+  var at = value.indexOf("@")
+  if (at > 0 && at < value.length - 1) {
+    return accountName(value.slice(0, at), description) + " (" + value.slice(at + 1) + ")"
+  }
   var words = value.replace(/[_-]+/g, " ").split(" ")
   var named = []
   for (var index = 0; index < words.length; index++) {
@@ -781,6 +786,7 @@ function accountRows(accounts, selectedService) {
     rows.push({
       service: String(account.service || ""),
       instance: String(account.instance || ""),
+      scope: String(account.scope || "user"),
       name: String(account.displayName || ""),
       selected: String(account.service || "") === String(selectedService || ""),
       status: String(account.statusText || "")
@@ -804,8 +810,8 @@ function resolveAccountTarget(accounts, target) {
   var wanted = String(target || "")
   // The plain account's instance IS "", so an unset argument would otherwise
   // match it and silently retarget every later control at the default account.
-  // (No account key can equal "" today, so this guard cannot currently be
-  // observed failing -- it is here so that stops being an accident.)
+  // Discovery keeps every short name unique, including "", so an instance match
+  // names exactly one account.
   if (wanted === "") return ""
   var index
   for (index = 0; index < list.length; index++) {

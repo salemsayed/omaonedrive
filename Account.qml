@@ -15,6 +15,9 @@ Item {
   // ExecStart by the helper -- never guessed from the instance name.
   property string service: Commands.DEFAULT_SERVICE
   property string instance: ""
+  // "user" or "system": which systemd manager owns the service. System units
+  // are controlled through polkit and have no timed resume.
+  property string scope: "user"
   property string confdir: ""
   property string description: ""
 
@@ -33,7 +36,11 @@ Item {
   onConfdirChanged: {
     if (sampleConfdir !== "" && confdir !== "" && sampleConfdir !== confdir) forgetSample()
   }
-  readonly property string resumeUnit: Commands.resumeUnit(instance)
+  // Same name, other systemd manager: a different unit, so a different account.
+  onScopeChanged: {
+    if (sampleConfdir !== "") forgetSample()
+  }
+  readonly property string resumeUnit: Commands.resumeUnit(instance, service, scope)
   // True once a status poll has produced a usable sample. Until then this
   // account contributes no state to the aggregate, so default values cannot
   // flash a wrong badge.
@@ -587,10 +594,10 @@ Item {
     _afterTimerCancel = ""
     resumeAt = 0
     if (action === "resume") {
-      runControl(Commands.control("start", root.service), 1)
+      runControl(Commands.control("start", root.service, root.scope), 1)
     } else if (action === "pause") {
       if (running || active || activeState === "activating") {
-        runControl(Commands.control("stop", root.service), 0)
+        runControl(Commands.control("stop", root.service, root.scope), 0)
       } else if (_pauseMinutes > 0) {
         var minutes = _pauseMinutes
         _pauseMinutes = 0
@@ -852,7 +859,7 @@ Item {
       actionStatus = "Timed pause failed; resuming syncing…"
       _scheduleRecovery = true
       // Recovery starts the SAME service the pause stopped.
-      runControl(Commands.control("start", root.service), 1)
+      runControl(Commands.control("start", root.service, root.scope), 1)
     } else {
       lastError = ""
       actionStatus = "Timed pause scheduled"

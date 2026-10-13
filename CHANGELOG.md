@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.0 - 2026-10-13
+
+- Discover accounts set up the way the OneDrive client's multi-account guide
+  describes. Copied user units named `onedrive-<name>.service` and system units
+  (`onedrive@<user>.service`, `onedrive-<name>@<user>.service`) were ignored
+  before, so a machine configured from that guide showed none of its accounts.
+- Only units that run the `onedrive` client count as accounts, and only system
+  units that run as the current user.
+- Read system units from the system manager and journal. Pause and resume them
+  through `systemctl` without `--user`, which asks polkit for permission. Timed
+  pauses fall back to an untimed pause and explain why.
+- Give each copied unit its own resume timer, `omaonedrive-resume-<name>`, so it
+  cannot collide with an `onedrive@<name>` account.
+- Keep account names unique. When two units would share a name, the existing
+  `onedrive@<name>` account keeps it and the other is named after its unit. If
+  a unit exists as both a user and a system unit, the one in use is shown.
+- Add a Support section to the README.
+
 ## 1.6.2 - 2026-09-15
 
 - Run combined storage and sync-status checks sequentially for each account.

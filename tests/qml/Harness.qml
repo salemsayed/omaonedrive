@@ -2392,7 +2392,49 @@ Item {
         harness.check(svc.toggleRunning() === "no accounts", "toggle reports no selected account")
       }
 
-      else if (s >= 216) {
+      // The units the client's own multi-account guide tells people to create:
+      // a copied user unit and a system template instance running as us.
+      else if (s === 216) {
+        console.log("copied and system units carry their own controls")
+        svc.applyDiscovery([
+          { service: "onedrive-work.service", instance: "work", scope: "user",
+            confdir: "/c/work", description: "OneDrive Client for Linux" },
+          { service: "onedrive@me.service", instance: "", scope: "system",
+            confdir: "/c/me", description: "OneDrive Client for Linux running for me" }
+        ])
+        harness.drain(harness.statusPayload({}))
+      }
+
+      else if (s === 217) {
+        harness.drain(harness.statusPayload({}))
+        var work = svc.accountForService("onedrive-work.service")
+        var system = svc.accountForService("onedrive@me.service")
+        harness.check(work !== null && work.scope === "user"
+          && work.resumeUnit === "omaonedrive-resume-work",
+          "a copied user unit gets a resume timer named after it: " + (work ? work.resumeUnit : "none"))
+        harness.check(system !== null && system.scope === "system" && system.resumeUnit === "",
+          "a system unit reaches its Account with its scope, and no user resume timer")
+        system.refresh(false)
+        var systemPoll = harness.liveWith("--scope system")
+        harness.check(systemPoll.length === 1
+          && systemPoll[0].indexOf("--service onedrive@me.service") !== -1
+          && systemPoll[0].indexOf("--resume-unit") === -1,
+          "...and its status poll names the service and the system manager: "
+          + (systemPoll.length === 1 ? systemPoll[0] : "none"))
+        harness.finishStatus("onedrive@me.service", harness.statusPayload({ confdir: "/c/me" }))
+        harness.check(system.pauseFor(60) === "no resume timer",
+          "a timed pause on a system unit says it cannot time it")
+      }
+
+      else if (s === 218) {
+        harness.check(harness.liveWith("systemctl stop onedrive@me.service").length === 1,
+          "...and stops the unit through the system manager")
+        harness.check(harness.liveWith("--user stop onedrive@me.service").length === 0,
+          "...never through the user manager, where it does not exist")
+        harness.drain(harness.statusPayload({}))
+      }
+
+      else if (s >= 219) {
         // The count is printed so tests/run can tell "every check passed" from
         // "no check ran": a qml that exits 0 without executing the harness, or a
         // step loop that stops early, both used to read as success.

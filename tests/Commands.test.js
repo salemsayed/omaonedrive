@@ -336,3 +336,74 @@ test("notification actions preserve both daemon support and their account", () =
   assert.deepEqual(Commands.notificationExec("arbitrary user input", "x"), [])
   assert.deepEqual(Commands.notificationExec("", "onedrive@a.service"), [])
 })
+
+// The units the client's multi-account guide tells people to create: copies
+// named "onedrive-<name>[@<instance>].service", user or system.
+const COPIED = {
+  service: "onedrive-work.service",
+  instance: "work",
+  scope: "user",
+  confdir: "/home/u/.config/onedrive-work",
+  description: "OneDrive Client for Linux"
+}
+const SYSTEM = {
+  service: "onedrive@u.service",
+  instance: "",
+  scope: "system",
+  confdir: "/home/u/.config/onedrive",
+  description: "OneDrive Client for Linux running for u"
+}
+
+test("a copied unit's resume timer is named after the unit, so it cannot collide", () => {
+  assert.equal(Commands.resumeUnit("work", "onedrive-work.service", "user"), "omaonedrive-resume-work")
+  assert.equal(Commands.resumeUnit("work@u", "onedrive-work@u.service", "user"),
+    "omaonedrive-resume-work@u")
+  // onedrive@work and onedrive-work are two accounts with the same short name.
+  assert.notEqual(Commands.resumeUnit("work", "onedrive-work.service", "user"),
+    Commands.resumeUnit("work", "onedrive@work.service", "user"))
+  // The template instance keeps the name it has had since 1.6.
+  assert.equal(Commands.resumeUnit("work", "onedrive@work.service", "user"), "omaonedrive-resume@work")
+  assert.equal(Commands.resumeUnit("", "onedrive.service", "user"), "omaonedrive-resume")
+  assert.equal(Commands.resumeUnit("x", "onedrive-x.timer.service", "user"), "")
+})
+
+test("a system unit has no resume timer and is controlled by the system manager", () => {
+  assert.equal(Commands.resumeUnit(SYSTEM.instance, SYSTEM.service, SYSTEM.scope), "")
+  assert.equal(Commands.resumeUnit("work", "onedrive-work@u.service", "system"), "")
+  assert.deepEqual(Commands.control("stop", SYSTEM.service, SYSTEM.scope),
+    ["systemctl", "stop", "onedrive@u.service"])
+  assert.deepEqual(Commands.control("start", COPIED.service, COPIED.scope),
+    ["systemctl", "--user", "start", "onedrive-work.service"])
+  assert.deepEqual(Commands.control("start", "onedrive.service"),
+    ["systemctl", "--user", "start", "onedrive.service"])
+})
+
+test("status names a copied unit's timer and a system unit's manager", () => {
+  assert.deepEqual(Commands.status("/p/h.py", COPIED, 20, ""), [
+    "python3", "/p/h.py",
+    "--service", "onedrive-work.service",
+    "--confdir", "/home/u/.config/onedrive-work",
+    "--resume-unit", "omaonedrive-resume-work",
+    "--limit", "20"
+  ])
+  assert.deepEqual(Commands.status("/p/h.py", SYSTEM, 20, ""), [
+    "python3", "/p/h.py",
+    "--service", "onedrive@u.service",
+    "--scope", "system",
+    "--confdir", "/home/u/.config/onedrive",
+    "--limit", "20"
+  ])
+  // A system unit that happens to be called onedrive.service is still not the
+  // plain user account: it must be named, with its manager.
+  const systemPlain = Object.assign({}, SYSTEM, { service: "onedrive.service" })
+  assert.deepEqual(Commands.status("/p/h.py", systemPlain, 20, "").slice(2, 6),
+    ["--service", "onedrive.service", "--scope", "system"])
+  assert.deepEqual(Commands.status("/p/h.py", Object.assign({}, systemPlain, { confdir: "" }), 20, ""), [])
+})
+
+test("a copied unit's instance reads as a label", () => {
+  assert.equal(Model.accountName("work", ""), "Work")
+  assert.equal(Model.accountName("work@salem", ""), "Work (salem)")
+  assert.equal(Model.accountName("team-mail@salem", ""), "Team Mail (salem)")
+  assert.equal(Model.accountName("@odd", ""), "@odd")
+})

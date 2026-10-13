@@ -5,13 +5,15 @@
 // that is the invariant `docs/ARCHITECTURE.md` states and that
 // `tests/Commands.test.js` pins with exact-array assertions.
 //
-// Each account is identified by its systemd service, its config directory, and
-// the instance parsed out of the service name. Nothing is derived from a naming
+// Each account is identified by its systemd service, the manager that service
+// belongs to ("user" or "system"), its config directory, and the short name the
+// helper derives from the service name. Nothing is derived from a naming
 // convention: the confdir comes from the helper's discovery, which reads it out
 // of each unit's own ExecStart.
 
 var DEFAULT_SERVICE = "onedrive.service"
 var DEFAULT_RESUME_UNIT = "omaonedrive-resume"
+var SYSTEM_SCOPE = "system"
 // Must match BarWidget.qml's moduleName: notification clicks are delivered by
 // Omarchy's notification daemon running `omarchy-shell <target> <function>`,
 // long after this process may have restarted. tests/PanelWiring.test.js pins
@@ -24,15 +26,23 @@ var IPC_TARGET = "io.github.salemsayed.omaonedrive"
 // Returns "" when no usable resume unit can be derived. The caller degrades to
 // an untimed pause rather than scheduling a timer that would collide with
 // another account's or that systemd would refuse.
-function resumeUnit(instance) {
-  var value = String(instance || "")
+//
+// The timer mirrors the service name, so it cannot collide between accounts:
+// "onedrive@x" -> "omaonedrive-resume@x" (unchanged since 1.6), and the copied
+// units the client's guide describes, "onedrive-work[@x]", ->
+// "omaonedrive-resume-work[@x]". A system unit gets none: the timer is a user
+// unit, and a user unit cannot start a system service.
+function resumeUnit(instance, service, scope) {
+  if (String(scope || "") === SYSTEM_SCOPE) return ""
+  var copied = /^onedrive-([^@]+(?:@.+)?)\.service$/.exec(String(service || ""))
+  var value = copied ? copied[1] : String(instance || "")
   if (value === "") return DEFAULT_RESUME_UNIT
   // systemd-run reads a --unit value ending in a unit suffix as THAT unit, so
   // instance "foo.timer" would derive the same timer as instance "foo" -- and
   // cancelling it would target "…foo.timer.timer", which does not exist,
   // stranding the other account's pause.
   if (value.endsWith(".timer") || value.endsWith(".service")) return ""
-  var unit = DEFAULT_RESUME_UNIT + "@" + value
+  var unit = DEFAULT_RESUME_UNIT + (copied ? "-" : "@") + value
   // systemd-run creates a .timer AND a .service, so the longer suffix is what
   // has to fit. Checking only .timer let a 230-character instance stop the
   // account and then fail to schedule its resume.
@@ -52,17 +62,22 @@ function status(helperPath, account, recentFileLimit, mode) {
   var service = String(account.service || "")
   var confdir = String(account.confdir || "")
   var instance = String(account.instance || "")
-  if (service !== "" && service !== DEFAULT_SERVICE) {
+  var system = String(account.scope || "") === SYSTEM_SCOPE
+  if (service !== "" && (service !== DEFAULT_SERVICE || system)) {
     command.push("--service", service)
   }
+  if (system) command.push("--scope", SYSTEM_SCOPE)
   if (confdir !== "") command.push("--confdir", confdir)
   // A non-default account with no confdir must not be polled at all. The helper
   // independently re-derives the confdir in that case, so this is belt-and-
   // braces -- but relying on that means the widget silently reports the DEFAULT
   // account's token, quota and files under this account's name if the helper
   // guard is ever relaxed. Refuse instead, and let the caller show nothing.
-  else if (service !== "" && service !== DEFAULT_SERVICE) return []
-  var unit = instance === "" ? "" : resumeUnit(instance)
+  else if (service !== "" && (service !== DEFAULT_SERVICE || system)) return []
+  // The plain service's legacy timer is the helper's own default, so it is not
+  // named; every other account names its own (or none, for a system unit).
+  var plain = instance === "" && (service === "" || service === DEFAULT_SERVICE)
+  var unit = plain ? "" : resumeUnit(instance, service, account.scope)
   if (unit !== "") command.push("--resume-unit", unit)
   command.push("--limit", String(recentFileLimit))
   if (mode === "quota") command.push("--quota")
@@ -74,7 +89,10 @@ function listAccounts(helperPath) {
   return ["python3", String(helperPath), "--list-accounts"]
 }
 
-function control(action, service) {
+// A system unit is stopped and started through the system manager, which asks
+// polkit; the session's authentication agent, if any, prompts for it.
+function control(action, service, scope) {
+  if (String(scope || "") === SYSTEM_SCOPE) return ["systemctl", String(action), String(service)]
   return ["systemctl", "--user", String(action), String(service)]
 }
 
@@ -156,6 +174,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     DEFAULT_SERVICE: DEFAULT_SERVICE,
     DEFAULT_RESUME_UNIT: DEFAULT_RESUME_UNIT,
+    SYSTEM_SCOPE: SYSTEM_SCOPE,
     IPC_TARGET: IPC_TARGET,
     notificationExec: notificationExec,
     resumeUnit: resumeUnit,

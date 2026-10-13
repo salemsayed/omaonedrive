@@ -29,8 +29,12 @@ was single-account.
 
 Timed pauses stop that account's service and schedule its own transient resume
 unit through `systemd-run --user` — `omaonedrive-resume` for the plain service,
-`omaonedrive-resume@<instance>` for a template instance, so an in-flight timer
-survives an upgrade and one account's pause never cancels another's. A few
+`omaonedrive-resume@<instance>` for a template instance,
+`omaonedrive-resume-<name>[@<instance>]` for a copied `onedrive-<name>` unit, so an in-flight timer
+survives an upgrade and one account's pause never cancels another's. A system unit
+has no resume unit: it is stopped and started with `systemctl` (no `--user`),
+which asks polkit, and a user timer could not start it again, so a timed pause
+there is an untimed one and says so. A few
 instance names cannot yield a safe unit at all: one ending in `.timer` or
 `.service` would make `systemd-run` derive the same unit as a different account,
 and one long enough to overflow systemd's 255-byte limit cannot be scheduled. For
@@ -77,15 +81,24 @@ path; `Commands.js` builds the command and includes the target account.
 - recent regular files below the configured sync directory, without following
   symlinks;
 - the names, `Description`, `LoadState` and `ExecStart` command line of the
-  `onedrive` and `onedrive@<instance>` user units, from which each account's
-  `--confdir` is read out of `argv[]` — never guessed from the instance name;
+  `onedrive`, `onedrive@<instance>`, `onedrive-<name>` and
+  `onedrive-<name>@<instance>` units — user units first, then system units,
+  whose `User` must be the current user — from which each account's
+  `--confdir` is read out of `argv[]` — never guessed from the instance name.
+  Every spelling but the plain user `onedrive` and `onedrive@<instance>` units
+  must also have an `ExecStart` record that runs the client, so an unrelated
+  `onedrive-backup.service` is not an account. A system unit whose name a user
+  unit already uses is skipped;
 - systemd enablement symlinks, `*.wants/onedrive*.service` and
   `*.requires/onedrive*.service`, under the user (`$XDG_CONFIG_HOME/systemd/user`
   or `~/.config/systemd/user`, and `$XDG_RUNTIME_DIR/systemd/user` when that
   variable is set) and system (`/run/systemd/user`, `/etc/systemd/user`,
   `/usr/lib/systemd/user`) unit directories — or, when `OMAONEDRIVE_UNIT_ROOTS`
   is set to a non-empty value, the colon-separated directories it names *instead*
-  of all of those — so an enabled-but-unloaded instance is still discovered;
+  of all of those — so an enabled-but-unloaded instance is still discovered; and
+  the same symlinks under the system manager's `/etc/systemd/system`,
+  `/run/systemd/system` and `/usr/lib/systemd/system`, or the directories
+  `OMAONEDRIVE_SYSTEM_UNIT_ROOTS` names instead (an empty value names none);
 - whether each candidate config directory exists, including every space-joined
   prefix of a `--confdir` read out of an `ExecStart` — systemd renders argv
   unquoted, so the longest prefix that is a real directory is taken as the
@@ -109,7 +122,11 @@ config directory rather than describing the default account under another
 account's name; a unit that cannot be resolved is reported as an unknown account
 with no config directory, never as the default one. `--list-accounts` is a separate mode with its own output shape:
 it prints a JSON array of the discovered accounts (`service`, `instance`,
-`confdir`, `description`) and exits without building a status object or invoking
+`scope`, `confdir`, `description`). `instance` is the account's short name —
+`personal` for `onedrive@personal`, `work` for `onedrive-work` — and drops a
+system unit's `@<user>`, which only names the current user. `scope` is `user` or
+`system`, and `--scope system` makes a status call read the unit from the system
+manager and journal, with no resume timer and exits without building a status object or invoking
 the OneDrive client at all, falling back to the single default account when
 systemd is unavailable. The helper never creates a config directory it was only
 asked to read.

@@ -75,16 +75,20 @@ def valid_confdir(value):
   return not path.exists() or path.is_dir()
 
 
-def account_state_dir(service, confdir):
+def account_state_dir(service, confdir, scope="user"):
   # The default account keeps the historical directory, so its cache and lock
   # paths are unchanged. Every other account gets its own directory, which
   # isolates the lock as well as the cache: a 30s cloud check on one account
   # must not block another account's ordinary poll. Keyed on the service AND
   # the config directory, because two services may share one confdir.
   base = state_dir()
-  if confdir is not None and str(service) == DEFAULT_SERVICE \
+  if confdir is not None and str(service) == DEFAULT_SERVICE and scope == "user" \
       and canonical_confdir(confdir) == canonical_confdir(default_confdir()):
     return base
+  # A system unit may share a user unit's name; it is still another account.
+  # User units keep their historical key so their caches survive upgrades.
+  if scope != "user":
+    service = scope + ":" + str(service)
   # os.fsencode, not str.encode: Linux paths are bytes, and a non-UTF-8 path
   # arrives surrogate-escaped and would raise on a strict encode.
   # An unknown confdir still gets a stable per-service key of its own.
@@ -230,11 +234,23 @@ def client_config(confdir, onedrive_path):
   }
 
 
-def systemctl_value(arguments):
-  return command_output(["systemctl", "--user", *arguments], timeout=4)
+# Which systemd manager an account's unit belongs to. The client ships a user
+# unit and a system template (onedrive@<user>.service, User=%i), and its
+# multi-account guide copies either one, so an account can live in both.
+USER_SCOPE = "user"
+SYSTEM_SCOPE = "system"
+SCOPES = (USER_SCOPE, SYSTEM_SCOPE)
 
 
-def unit_properties(unit, names):
+def scope_flags(scope):
+  return ["--user"] if scope == USER_SCOPE else []
+
+
+def systemctl_value(arguments, scope=USER_SCOPE):
+  return command_output(["systemctl", *scope_flags(scope), *arguments], timeout=4)
+
+
+def unit_properties(unit, names, scope=USER_SCOPE):
   """Parsed `systemctl show` properties for one unit, or None when the call failed.
 
   Multi-valued properties (ExecStart) keep every line; single-valued ones keep
@@ -245,7 +261,7 @@ def unit_properties(unit, names):
     unit,
     "--property=" + ",".join(names),
     "--no-pager",
-  ])
+  ], scope)
   if exit_code != 0:
     return None
   properties = {}
@@ -256,10 +272,11 @@ def unit_properties(unit, names):
   return properties
 
 
-def service_state(service):
+def service_state(service, scope=USER_SCOPE):
   properties = unit_properties(
     service,
     ["LoadState", "ActiveState", "SubState", "UnitFileState", "Result", "ExecMainCode", "ExecMainStatus"],
+    scope,
   ) or {}
   properties = {key: values[0] for key, values in properties.items()}
   load_state = properties.get("LoadState", "")
@@ -342,9 +359,14 @@ def resume_unit_name(value):
 def valid_resume_unit(value):
   return valid_unit_name(resume_unit_name(value), ".timer")
 
-# "onedrive.service" or "onedrive@<instance>.service"; the bare template
-# "onedrive@.service" deliberately does not match — it is not an account.
-ONEDRIVE_UNIT_PATTERN = re.compile(r"onedrive(?:@(?P<instance>[A-Za-z0-9_.:\\-]+))?\.service")
+# "onedrive.service", "onedrive@<instance>.service", and the copies the client's
+# multi-account guide tells people to make: "onedrive-<name>.service" and
+# "onedrive-<name>@<instance>.service". Bare templates ("onedrive@.service",
+# "onedrive-<name>@.service") deliberately do not match -- they are not accounts.
+# <name> may not contain "@", so the first "@" always starts the instance.
+ONEDRIVE_UNIT_PATTERN = re.compile(
+  r"onedrive(?:-(?P<name>[A-Za-z0-9_.:\\-]+?))?(?:@(?P<instance>[A-Za-z0-9_.:\\-]+))?\.service"
+)
 
 # systemd renders each ExecStart entry as a brace-delimited record of
 # " ; "-separated key=value fields:
@@ -442,9 +464,43 @@ def confdir_from_exec_start(value):
   return fallback if parsed else ""
 
 
-def unit_search_dirs():
+def exec_start_runs_client(value):
+  # A unit named "onedrive-backup.service" may well run rsync. The copied units
+  # the client's guide describes still run the client itself, so that is what
+  # makes one an account.
+  for match in EXEC_RECORD_PATTERN.finditer(value):
+    argv = exec_start_fields(match.group("body")).get("argv[]", "")
+    tokens = [token for token in argv.split(" ") if token]
+    if tokens and "onedrive" in os.path.basename(tokens[0]):
+      return True
+  return False
+
+
+def current_user_names():
+  # systemd reports User= as written in the unit, which may be a name or a
+  # numeric UID.
+  uid = os.getuid()
+  names = {str(uid)}
+  try:
+    import pwd
+    names.add(pwd.getpwuid(uid).pw_name)
+  except (ImportError, KeyError):
+    pass
+  return names
+
+
+def unit_search_dirs(scope=USER_SCOPE):
   # Overridable so the test suite can enumerate a sandboxed tree instead of the
   # host's real unit directories; also useful in a container.
+  if scope == SYSTEM_SCOPE:
+    override = os.environ.get("OMAONEDRIVE_SYSTEM_UNIT_ROOTS")
+    if override is not None:
+      return [Path(part) for part in override.split(":") if part]
+    return [
+      Path("/etc/systemd/system"),
+      Path("/run/systemd/system"),
+      Path("/usr/lib/systemd/system"),
+    ]
   override = os.environ.get("OMAONEDRIVE_UNIT_ROOTS")
   if override:
     return [Path(part) for part in override.split(":") if part]
@@ -466,14 +522,14 @@ def unit_search_dirs():
   return directories
 
 
-def wants_unit_names():
+def wants_unit_names(scope=USER_SCOPE):
   # "list-units" only reports units systemd currently has loaded, so an instance
   # that is enabled but has never been started (or was garbage-collected while
   # inactive) is invisible there. Its enablement symlink is not, and
   # "list-unit-files" never expands template instances, so the symlinks are the
   # only way to see it.
   names = []
-  for directory in unit_search_dirs():
+  for directory in unit_search_dirs(scope):
     for pattern in ("*.wants/onedrive*.service", "*.requires/onedrive*.service"):
       try:
         for link in directory.glob(pattern):
@@ -483,7 +539,7 @@ def wants_unit_names():
   return names
 
 
-def onedrive_unit_names():
+def onedrive_unit_names(scope=USER_SCOPE):
   names = []
   exit_code, output = systemctl_value([
     "list-units",
@@ -492,7 +548,7 @@ def onedrive_unit_names():
     "--no-legend",
     "--plain",
     "--no-pager",
-  ])
+  ], scope)
   if exit_code == 0:
     for line in output.splitlines():
       fields = line.split()
@@ -501,7 +557,7 @@ def onedrive_unit_names():
   # Names swept off the filesystem are raw symlink names, never validated by
   # systemd, so the pattern filter below is what keeps an unusable name out of
   # the payload — it is a gate, not a tidy-up.
-  names.extend(wants_unit_names())
+  names.extend(wants_unit_names(scope))
   return list(dict.fromkeys(
     name for name in names if ONEDRIVE_UNIT_PATTERN.fullmatch(name)
   ))
@@ -511,20 +567,47 @@ def default_account():
   return {
     "service": DEFAULT_SERVICE,
     "instance": "",
+    "scope": USER_SCOPE,
     "confdir": str(default_confdir()),
     "description": "OneDrive",
   }
 
 
-def account_entry(unit):
+def account_key(match, scope):
+  """The short name an account is shown and addressed by.
+
+  "onedrive@personal" is "personal" and "onedrive-work" is "work". A system
+  unit's instance is the user it runs as (the shipped template is User=%i), and
+  every system account we report runs as us, so it says nothing about which
+  account this is and is left out.
+  """
+  name = match.group("name") or ""
+  instance = match.group("instance") or ""
+  if scope == SYSTEM_SCOPE and instance in current_user_names():
+    instance = ""
+  if name and instance:
+    return name + "@" + instance
+  return name or instance
+
+
+def account_entry(unit, scope=USER_SCOPE):
   match = ONEDRIVE_UNIT_PATTERN.fullmatch(unit)
   if match is None:
     # Reachable from build_status: --service accepts any unit name, not only
     # ours. Not an account, so there is nothing to describe.
     return None
-  properties = unit_properties(unit, ["ExecStart", "Description", "LoadState"])
+  names = ["ExecStart", "Description", "LoadState"]
+  if scope == SYSTEM_SCOPE:
+    names.append("User")
+  properties = unit_properties(unit, names, scope)
   if properties is None:
     return None
+  if scope == SYSTEM_SCOPE:
+    # A system unit is only this user's account if it runs as this user. Root's
+    # unit, or another user's onedrive@<them>.service, reads a config directory
+    # we neither own nor should report on.
+    if (properties.get("User") or [""])[0] not in current_user_names():
+      return None
   load_state = (properties.get("LoadState") or [""])[0]
   # An allowlist, not a denylist. not-found is a stale enablement symlink and
   # masked is a unit deliberately turned off, but "error", "stub" and
@@ -545,6 +628,11 @@ def account_entry(unit):
     # nothing about where this account lives, and answering with the default
     # would be a claim about identity we cannot support.
     return None
+  # Only the plain user units keep the historical leniency about what they run;
+  # every other spelling is an account only if it actually runs the client.
+  if (match.group("name") or scope == SYSTEM_SCOPE) \
+      and not exec_start_runs_client("\n".join(exec_start)):
+    return None
   confdir = confdir_from_exec_start("\n".join(exec_start))
   if confdir is None:
     # The unit really does pass no --confdir, so the client default applies.
@@ -557,21 +645,32 @@ def account_entry(unit):
     return None
   return {
     "service": unit,
-    "instance": match.group("instance") or "",
+    "instance": account_key(match, scope),
+    "scope": scope,
     "confdir": confdir,
     "description": (properties.get("Description") or [""])[0] or "OneDrive",
   }
 
 
 def discover_accounts():
-  accounts = [
-    entry for entry in (account_entry(unit) for unit in onedrive_unit_names()) if entry
-  ]
+  accounts = []
+  seen = set()
+  # User units first: the service name is the account's key everywhere in the
+  # widget, so a same-named system unit cannot be a second account, and the
+  # user unit is the one the widget can control without a password.
+  for scope in SCOPES:
+    for unit in onedrive_unit_names(scope):
+      if unit in seen:
+        continue
+      entry = account_entry(unit, scope)
+      if entry:
+        seen.add(unit)
+        accounts.append(entry)
   if not accounts:
     # No systemd, no systemctl, or nothing enabled: degrade to the single
     # default account so callers still get a usable list.
     return [default_account()]
-  accounts.sort(key=lambda row: row["instance"])
+  accounts.sort(key=lambda row: (row["instance"], row["service"]))
   return accounts
 
 
@@ -650,10 +749,10 @@ def parse_sync_stage(message):
   return ""
 
 
-def journal_state(service, now=None):
+def journal_state(service, now=None, scope=USER_SCOPE):
   now = int(time.time()) if now is None else now
   exit_code, output = command_output(
-    ["journalctl", "--user", "--unit", service, "--lines", "120", "--no-pager", "--output", "json"],
+    ["journalctl", *scope_flags(scope), "--unit", service, "--lines", "120", "--no-pager", "--output", "json"],
     timeout=5,
   )
   result = {
@@ -943,11 +1042,11 @@ def build_status(args):
   onedrive_path = shutil.which("onedrive")
   if args.confdir:
     confdir = canonical_confdir(args.confdir)
-  elif args.service != DEFAULT_SERVICE:
+  elif args.service != DEFAULT_SERVICE or args.scope != USER_SCOPE:
     # Asked about another account but told nothing about where it lives: read the
     # confdir out of that unit, exactly as discovery does. Reporting the default
     # account's token and files under this account's name would be a lie.
-    entry = account_entry(args.service)
+    entry = account_entry(args.service, args.scope)
     # None, not the default: an unresolvable unit is an unknown account, and
     # answering with the default account's data would be a lie about identity.
     confdir = canonical_confdir(entry["confdir"]) if entry else None
@@ -960,17 +1059,21 @@ def build_status(args):
   }
   sync_dir = config["syncDir"]
   authenticated = confdir is not None and (confdir / "refresh_token").is_file()
-  service = service_state(args.service)
+  service = service_state(args.service, args.scope)
   # Each account schedules its own transient resume unit, so the caller names it.
   # Without the flag only the plain service has a well-known one --
   # DEFAULT_RESUME_UNIT starts onedrive.service, so its pending time belongs to
   # that SERVICE whichever config directory was named -- and every other account
-  # reports no resume time rather than borrowing that one.
-  resume_unit = args.resume_unit or (
-    DEFAULT_RESUME_UNIT if args.service == DEFAULT_SERVICE else ""
-  )
+  # reports no resume time rather than borrowing that one. A system unit has no
+  # resume timer at all: the timers are user units and could not start it.
+  if args.scope == SYSTEM_SCOPE:
+    resume_unit = ""
+  else:
+    resume_unit = args.resume_unit or (
+      DEFAULT_RESUME_UNIT if args.service == DEFAULT_SERVICE else ""
+    )
   resume_at = resume_timer_state(resume_unit_name(resume_unit)) if resume_unit else 0
-  journal = journal_state(args.service) if service["serviceAvailable"] else {
+  journal = journal_state(args.service, scope=args.scope) if service["serviceAvailable"] else {
     "syncing": False,
     "lastSyncTs": 0,
     "lastError": "",
@@ -982,7 +1085,7 @@ def build_status(args):
     "syncStage": "",
   }
 
-  directory = account_state_dir(args.service, confdir)
+  directory = account_state_dir(args.service, confdir, args.scope)
   directory.mkdir(parents=True, exist_ok=True, mode=0o700)
   # Every level, not just the leaf: mkdir applies its mode to the leaf alone, so
   # a run for a non-default account would otherwise leave the plugin state root
@@ -1110,7 +1213,13 @@ def main():
   parser.add_argument("--sync-status", action="store_true", help="query Microsoft for full-drive sync status only")
   parser.add_argument("--remote", action="store_true", help="query both quota and full-drive sync status")
   parser.add_argument("--limit", type=int, default=20, help="number of recent local files")
-  parser.add_argument("--service", default=DEFAULT_SERVICE, help="systemd user service name")
+  parser.add_argument("--service", default=DEFAULT_SERVICE, help="systemd service name")
+  parser.add_argument(
+    "--scope",
+    default=USER_SCOPE,
+    choices=SCOPES,
+    help="whether --service is a user unit (the default) or a system unit",
+  )
   parser.add_argument("--confdir", default=None, help="OneDrive config directory for this account")
   parser.add_argument(
     "--resume-unit",

@@ -336,6 +336,10 @@ fi
 SH
 
 chmod +x "$fake_bin/onedrive" "$fake_bin/systemctl" "$fake_bin/journalctl"
+# Resolve the real interpreter while HOME is still the user's: a version-manager
+# shim (mise, asdf) reads its config and trust state from HOME, and fails once
+# HOME is the throwaway test home below.
+ln -s "$(python3 -c 'import sys; print(sys.executable)')" "$fake_bin/python3"
 export FAKE_ONEDRIVE_LOG="$test_root/onedrive.log"
 export FAKE_SYNC_DIR="$sync_dir"
 export HOME="$test_home"

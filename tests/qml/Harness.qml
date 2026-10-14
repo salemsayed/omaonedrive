@@ -1872,13 +1872,20 @@ Item {
         Quickshell.detached = []
         svc.accounts[0].refresh(false)
         harness.finishStatus("onedrive@a.service", harness.statusPayload({
-          confdir: "/c/a", serviceFailed: true, lastError: "unit entered failed state" }))
+          confdir: "/c/a", serviceFailed: true,
+          lastError: "Sync failed in /home/someone/Private Clients" }))
         svc.flushTransitions()
         var failed = harness.notifySent()
         harness.check(failed.length === 1 && failed[0].indexOf("sync failed") !== -1,
           "a service failure notifies: " + (failed[0] || ""))
-        harness.check(failed.length === 1 && failed[0].indexOf("unit entered failed state") !== -1,
-          "...carrying the error systemd reported")
+        // The notification travels as process argv, which other local users can
+        // read, so the error (which may name a private folder) must not ride it.
+        harness.check(failed.length === 1 && failed[0].indexOf("Private Clients") === -1,
+          "...without the private error text: " + (failed[0] || ""))
+        harness.check(JSON.stringify(Quickshell.detached).indexOf("Private Clients") === -1,
+          "...in any detached argv")
+        harness.check(svc.accounts[0].lastError.indexOf("Private Clients") !== -1,
+          "...which stays in the panel: " + svc.accounts[0].lastError)
         harness.drain("")
       }
 

@@ -438,9 +438,13 @@ Item {
     if (resyncRequired && !wasResync)
       report("resync", "OneDrive needs a resync", "Resync required",
         "Syncing stopped until the resync repair runs.", "repair")
+    // Fixed text only: lastError can name a private sync directory, and every
+    // notification body reaches process argv on the way to the desktop --
+    // Omarchy's own daemon persists each popup through bash argv. The error
+    // itself stays in the panel.
     else if (serviceFailed && !wasFailed)
       report("failed", "OneDrive sync failed", "Sync failed",
-        lastError !== "" ? lastError : "The OneDrive service entered a failed state.", "open")
+        "The OneDrive service entered a failed state. Open the panel for details.", "open")
     if (reauthRequired && !wasReauth)
       report("reauth", "OneDrive needs reauthentication", "Reauthentication required",
         "Sign in again to keep syncing.", "open")

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.1 - 2026-10-14
+
+- Keep the service's error text out of the "sync failed" desktop
+  notification. The error can name a private sync folder, and notification
+  text passes through process arguments that other local users can read,
+  including in Omarchy's own notification service. The notification now says
+  to open the panel, which still shows the full error.
+
 ## 1.7.0 - 2026-10-13
 
 - Discover accounts set up the way the OneDrive client's multi-account guide

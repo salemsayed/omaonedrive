@@ -174,6 +174,12 @@ Item {
   // The built-in bar's facade answers serviceFor(); a replacement bar's does not.
   QtObject { id: builtinBar; property var shell: QtObject { function serviceFor(id) { return svc } } }
   QtObject { id: replacementBar; property var shell: QtObject { function serviceFor(id) { return null } } }
+  QtObject {
+    id: answeringReplacementBar
+    property var shell: QtObject {
+      function serviceFor(id) { return id === "io.github.salemsayed.omaonedrive" ? svc : null }
+    }
+  }
   // Records the account a panel opened by summon would read.
   QtObject {
     id: fakeShell
@@ -2583,7 +2589,17 @@ Item {
         harness.drain(harness.statusPayload({}))
       }
 
-      else if (s >= 227) {
+      else if (s === 227) {
+        console.log("ServiceLink.js is only the fallback")
+        var decoy = serviceComponent.createObject(harness)
+        var answered = widgetComponent.createObject(harness, { bar: answeringReplacementBar })
+        harness.check(ServiceLink.current() === decoy && answered.service === svc,
+          "a replacement bar whose facade returns the plugin's own service wins over ServiceLink.js")
+        answered.destroy()
+        decoy.destroy()
+      }
+
+      else if (s >= 228) {
         // The count is printed so tests/run can tell "every check passed" from
         // "no check ran": a qml that exits 0 without executing the harness, or a
         // step loop that stops early, both used to read as success.

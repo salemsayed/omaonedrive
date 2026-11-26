@@ -226,6 +226,12 @@ test("a widget pushes only the settings its bar gave it, never the bar type's em
     "function pushSettings() { if (root.service && root.settings) root.service.settings = root.settings }")
 })
 
+test("the widget asks the shell for its service, and ServiceLink.js only when the shell has none", () => {
+  assert.equal(
+    code(barWidget, "readonly property var service:", "function followServiceLink()"),
+    "readonly property var service: (bar && bar.shell ? bar.shell.serviceFor(moduleName) : null) || linkedService")
+})
+
 test("release metadata stays synchronized", () => {
   // Verbatim from upstream 1.5.5: the manifest version must have a dated
   // changelog entry.

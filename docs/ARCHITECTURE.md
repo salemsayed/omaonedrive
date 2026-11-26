@@ -16,10 +16,16 @@ one change behind an edit of `shell.json`.
 A widget finds the service with `bar.shell.serviceFor()`. A replacement bar's
 facade returns null there, so the service also registers in `ServiceLink.js`, a
 `.pragma library` script shared by every file that imports it, which notifies
-widgets when a service registers or goes away. The service owns the IPC
-target; panel calls go through the shell's `summon`, `hide` and `toggle`, which
-pick the focused monitor's widget. A notification's account waits in
-`openTarget` while the panel opens.
+widgets when a service registers or goes away. The registry is only the
+fallback: whenever `serviceFor()` answers, the widget uses that. Omarchy keeps
+plugin services away from replacement bars on purpose, so that a bar cannot
+take another plugin's live service; the registry sidesteps that for this
+plugin, and any QML in the shell that imports it by path can reach the service.
+It goes unused under the built-in bar, and would under replacement bars too if
+Omarchy's facade for a replacement bar's widget returned that widget's own
+service. The service owns the IPC target; panel calls go through the shell's
+`summon`, `hide` and `toggle`, which pick the focused monitor's widget. A
+notification's account waits in `openTarget` while the panel opens.
 
 `Service.qml` is the coordinator and `Account.qml` is the asynchronous boundary
 between QML and the operating system. One `Account` exists per discovered

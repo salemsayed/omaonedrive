@@ -3,13 +3,7 @@ const { readFileSync } = require("node:fs")
 const path = require("node:path")
 const test = require("node:test")
 
-const source = readFileSync(path.join(__dirname, "..", "BarWidget.qml"), "utf8")
-
-test("IPC registration waits for a relocated bar slot to retire", () => {
-  assert.match(source, /property bool ipcRegistrationReady: false/)
-  assert.match(source, /id: ipcRegistrationTimer\s+interval: 100/)
-  assert.match(source, /IpcHandler \{\s+enabled: root\.ipcRegistrationReady\s+target: root\.moduleName/)
-})
+const source = readFileSync(path.join(__dirname, "..", "Service.qml"), "utf8")
 
 // --- the account IPC surface -------------------------------------------------
 //
@@ -100,16 +94,16 @@ test("an exact unit name beats another account's instance, whatever the order", 
 
 test("the IPC handler still exposes both account functions, and selects without a cloud call", () => {
   // The pure functions above are worthless if nothing calls them. These pin the
-  // wiring, which is the half that lives in a file no harness can instantiate.
+  // wiring.
   const handler = source.slice(source.indexOf("IpcHandler {"))
   assert.match(handler, /function accounts\(\): string/)
   assert.match(handler, /function selectAccount\(target: string\): string/)
-  assert.match(handler, /Model\.accountRows\(root\.service\.accounts, root\.service\.selectedService\)/)
-  assert.match(handler, /Model\.resolveAccountTarget\(root\.service\.accounts, target\)/)
+  assert.match(handler, /Model\.accountRows\(root\.accounts, root\.selectedService\)/)
+  assert.match(handler, /Model\.resolveAccountTarget\(root\.accounts, target\)/)
   // The second argument is the fix from an earlier round: automation selecting
   // an account must not inherit the panel's stale-quota retry, which contacts
   // Microsoft. Dropping the `false` restores that.
-  assert.match(handler, /root\.service\.selectAccount\(found, false\)/)
+  assert.match(handler, /root\.selectAccount\(found, false\)/)
   // An unresolved target must report, not silently act on whatever is selected.
   assert.match(handler, /return "unknown account: " \+ target/)
 })

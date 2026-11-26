@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import "Model.js" as Model
 import "Commands.js" as Commands
+import "ServiceLink.js" as ServiceLink
 
 // Coordinator over every discovered OneDrive account.
 //
@@ -11,9 +12,17 @@ import "Commands.js" as Commands
 // its own state and processes. The panel and bar widget bind to the selected
 // account through the forwarding block near the bottom, so a single-account
 // install behaves exactly as it did before discovery existed.
+//
+// The shell creates it once, from the manifest's service entry point, and the
+// bar widget on every monitor binds to that one instance, so polling,
+// notifications, the selection and the IPC target exist once.
 Item {
   id: root
 
+  // Injected by the shell, which routes panel requests to a monitor.
+  property var shell: null
+
+  // Pushed by every monitor's bar widget; see BarWidget.pushSettings().
   property var settings: ({})
 
   property var _accountObjects: []
@@ -350,8 +359,8 @@ Item {
       composed.action, composed.service, clickHelperPath))
   }
 
-  // What a notification click does, reached over IPC (BarWidget's openAccount
-  // and repairAccount) because the daemon delivers the click as a fresh
+  // What a notification click does, reached over IPC (openAccount and
+  // repairAccount below) because the daemon delivers the click as a fresh
   // `omarchy-shell` invocation. Both live here so the harness can drive them.
   function openFromNotification(target) {
     var found = Model.resolveAccountTarget(accounts, target)
@@ -373,6 +382,17 @@ Item {
     var account = accountForService(found)
     if (account) account.repairResync()
     if (found !== selectedService) selectAccount(found, false)
+  }
+
+  // The shell opens the panel on the focused monitor, as Omarchy's panel
+  // hotkeys do, but hands a bar widget no payload. A notification's account
+  // waits in openTarget while summon opens the panel, which reads it.
+  property string openTarget: ""
+
+  function openPanel(target) {
+    openTarget = target
+    shell.summon(Commands.IPC_TARGET)
+    openTarget = ""
   }
 
   // --- selected-account facade ----------------------------------------------
@@ -461,6 +481,72 @@ Item {
   function toggleRunning() { return selectedAccount ? selectedAccount.toggleRunning() : "no accounts" }
 
   // --- wiring ---------------------------------------------------------------
+
+  // The plugin's one IPC target. Panel requests go through the shell to the
+  // focused monitor; everything else acts on the shared state above.
+  IpcHandler {
+    target: Commands.IPC_TARGET
+    function open(): void { root.openPanel("") }
+    function close(): void { root.shell.hide(Commands.IPC_TARGET) }
+    function show(): void { root.openPanel("") }
+    function hide(): void { root.shell.hide(Commands.IPC_TARGET) }
+    function toggle(): void { root.shell.toggle(Commands.IPC_TARGET) }
+    function refresh(): string {
+      root.refresh(false)
+      return "ok"
+    }
+    function check(): string {
+      root.checkQuota()
+      return "ok"
+    }
+    function fullStatus(): string {
+      root.checkFullStatus()
+      return "ok"
+    }
+    function pause(): string { return root.pause() }
+    function pauseFor(minutes: int): string { return root.pauseFor(minutes) }
+    function resume(): string { return root.resume() }
+    function toggleSync(): string { return root.toggleRunning() }
+    function folder(): string {
+      root.openFolder()
+      return "ok"
+    }
+    function web(): string {
+      root.openWeb()
+      return "ok"
+    }
+    function resync(): string {
+      root.repairResync()
+      return "ok"
+    }
+    function status(): string { return root.statusText }
+    // Enumerate and select, so automation can reach a non-default account before
+    // invoking any of the controls above -- which all act on the selected one.
+    // Both bodies live in Model.js, where they are table-tested.
+    function accounts(): string {
+      return JSON.stringify(Model.accountRows(root.accounts, root.selectedService))
+    }
+    function selectAccount(target: string): string {
+      var found = Model.resolveAccountTarget(root.accounts, target)
+      if (found === "") return "unknown account: " + target
+      // false: automation selecting an account merely to target a control must
+      // not trigger the panel's stale-quota retry, which contacts Microsoft.
+      root.selectAccount(found, false)
+      return "ok"
+    }
+    // Notification clicks land here: the daemon persists the popup's --exec
+    // hint and runs `omarchy-shell <target> openAccount <service>` on click,
+    // which works even after this process has been reloaded.
+    function openAccount(target: string): string {
+      // The panel selects the target before any account refresh or quota retry.
+      root.openPanel(target)
+      return "ok"
+    }
+    function repairAccount(target: string): string {
+      root.repairFromNotification(target)
+      return "ok"
+    }
+  }
 
   ListModel { id: descriptors }
 
@@ -619,5 +705,8 @@ Item {
     descriptors.append(defaultDescriptor())
     selectedService = Commands.DEFAULT_SERVICE
     reloadAccounts()
+    ServiceLink.register(root)
   }
+
+  Component.onDestruction: ServiceLink.unregister(root)
 }

@@ -9,15 +9,11 @@ import tempfile
 
 root = Path(__file__).resolve().parent.parent
 panel = (root / 'Panel.qml').read_text()
-bar = (root / 'BarWidget.qml').read_text()
 functions = []
 for name in ('open', 'close', 'setCenterHoverRevealSuppressed'):
     match = re.search(r'^  function ' + name + r'\([^\n]*\) \{.*?^  \}', panel, re.M | re.S)
     assert match, f'Panel function {name} missing'
     functions.append(match.group())
-match = re.search(r'^    function openAccount\([^\n]*\).*?^    \}', bar, re.M | re.S)
-assert match, 'Notification IPC missing'
-functions.append(match.group())
 source = '''import QtQuick
 Item {
   id: root
@@ -35,6 +31,7 @@ Item {
     property string selected: "previous"
     property string refreshed: ""
     property int retries: 0
+    property string openTarget: ""
     function selectBadgedAccount() { selected = "badged" }
     function openFromNotification(target) { selected = target }
     function refreshSelected() { refreshed = selected }
@@ -68,7 +65,10 @@ Item {
     root.close()
     check(root.hidden && !modern.suppressed, "modern panel closes and clears suppression")
     oneDrive.retries = 0
-    root.openAccount("onedrive@work.service")
+    // Service.openPanel sets this while the shell opens the panel.
+    oneDrive.openTarget = "onedrive@work.service"
+    root.open()
+    oneDrive.openTarget = ""
     check(oneDrive.selected === "onedrive@work.service", "notification selects its account")
     check(oneDrive.refreshed === "onedrive@work.service", "notification refreshes its account")
     check(oneDrive.retries === 0, "notification never queues the bar click's cloud retry")

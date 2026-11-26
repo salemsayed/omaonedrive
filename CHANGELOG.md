@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.8.0 - 2026-11-26
+
+- Run polling, notifications and the IPC target once on a machine with several
+  monitors. The bar draws the widget once per monitor, and each copy did this
+  work itself, so every notification arrived once per monitor. A plugin service
+  now does it, and every monitor's widget shows its state, under the built-in
+  bar and under replacement bars.
+- Open the panel on the focused monitor for the `open`, `show`, `toggle` and
+  `openAccount` IPC calls and for notification clicks, as Omarchy's own panel
+  hotkeys do. The selected account is shared across monitors.
+
 ## 1.7.1 - 2026-10-14
 
 - Keep the service's error text out of the "sync failed" desktop

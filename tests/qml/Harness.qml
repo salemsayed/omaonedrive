@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import "../../"
+import "../../ServiceLink.js" as ServiceLink
 
 // Executes the REAL Service.qml and Account.qml against stub Quickshell types.
 //
@@ -152,6 +153,36 @@ Item {
     id: svc
     settings: ({ refreshIntervalSec: 10, recentFileLimit: 5, notifications: true })
   }
+
+  // A monitor's bar widget, reduced to how BarWidget.qml finds its service
+  // (that file derives from the bar's own type and cannot load here).
+  Component {
+    id: widgetComponent
+    QtObject {
+      id: widget
+      property var bar: null
+      property var linkedService: ServiceLink.current()
+      readonly property var service: (bar && bar.shell ? bar.shell.serviceFor("io.github.salemsayed.omaonedrive") : null)
+        || linkedService
+      readonly property int accountCount: service ? service.accountCount : 0
+      function followServiceLink() { widget.linkedService = ServiceLink.current() }
+      Component.onCompleted: ServiceLink.subscribe(followServiceLink)
+      Component.onDestruction: ServiceLink.unsubscribe(followServiceLink)
+    }
+  }
+  Component { id: serviceComponent; Service {} }
+  // The built-in bar's facade answers serviceFor(); a replacement bar's does not.
+  QtObject { id: builtinBar; property var shell: QtObject { function serviceFor(id) { return svc } } }
+  QtObject { id: replacementBar; property var shell: QtObject { function serviceFor(id) { return null } } }
+  // Records the account a panel opened by summon would read.
+  QtObject {
+    id: fakeShell
+    property string seen: "none"
+    function summon(id) { seen = svc.openTarget; return true }
+  }
+  property var builtinWidget: null
+  property var replacementWidget: null
+  property var reloadedService: null
 
   property int step: 0
   property var firstObjects: []
@@ -2441,7 +2472,78 @@ Item {
         harness.drain(harness.statusPayload({}))
       }
 
-      else if (s >= 219) {
+      // One Service for every monitor's widget, under the built-in bar and a
+      // replacement bar alike.
+      else if (s === 219) {
+        console.log("one service for every monitor's widget")
+        // The Service may load after the widgets.
+        ServiceLink.unregister(svc)
+        harness.builtinWidget = widgetComponent.createObject(harness, { bar: builtinBar })
+        harness.replacementWidget = widgetComponent.createObject(harness, { bar: replacementBar })
+        harness.check(harness.builtinWidget.service === svc,
+          "a widget under the built-in bar binds through serviceFor()")
+        harness.check(harness.replacementWidget.service === null,
+          "a widget under a replacement bar has no service before one registers")
+        ServiceLink.register(svc)
+        harness.check(harness.replacementWidget.service === svc,
+          "...and binds through ServiceLink.js once it does")
+        svc.applyDiscovery([
+          { service: "onedrive@a.service", instance: "a", confdir: "/c/a", description: "A" }
+        ])
+        harness.check(harness.builtinWidget.accountCount === 1 && harness.replacementWidget.accountCount === 1,
+          "both widgets follow the service's state")
+        harness.drain(harness.statusPayload({ confdir: "/c/a" }))
+      }
+
+      else if (s === 220) {
+        harness.drain(harness.statusPayload({ confdir: "/c/a" }))
+        svc.accounts[0].refresh(false)
+        harness.finishStatus("onedrive@a.service", harness.statusPayload({ confdir: "/c/a" }))
+        svc.flushTransitions()
+        harness.drain("")
+      }
+
+      else if (s === 221) {
+        Quickshell.detached = []
+        svc.accounts[0].refresh(false)
+        harness.check(harness.runningStatusServices().length === 1,
+          "two widgets bound to the service still mean one status poll")
+        harness.finishStatus("onedrive@a.service", harness.statusPayload({
+          confdir: "/c/a", serviceFailed: true }))
+        svc.flushTransitions()
+        var once = harness.notifySent()
+        harness.check(once.length === 1 && once[0].indexOf("sync failed") !== -1,
+          "...and one notification per failure: " + JSON.stringify(once))
+        harness.drain("")
+      }
+
+      else if (s === 222) {
+        // The shell's summon carries no account to a bar widget, so the panel it
+        // opens reads the notification's account from the service.
+        svc.shell = fakeShell
+        svc.openPanel("onedrive@a.service")
+        harness.check(fakeShell.seen === "onedrive@a.service" && svc.openTarget === "",
+          "a notification's account is offered while summon opens the panel, and only then")
+        svc.shell = null
+        // A reload: the new Service registers, then the old one is torn down.
+        harness.reloadedService = serviceComponent.createObject(harness)
+        harness.check(harness.replacementWidget.service === harness.reloadedService,
+          "a reloaded service replaces the old one in the widget")
+        ServiceLink.unregister(svc)
+        harness.check(harness.replacementWidget.service === harness.reloadedService,
+          "...and the old one going away afterwards does not clear it")
+        harness.reloadedService.destroy()
+      }
+
+      else if (s === 223) {
+        harness.check(ServiceLink.current() === null && harness.replacementWidget.service === null,
+          "a destroyed service unregisters, and the widget is left with none")
+        harness.builtinWidget.destroy()
+        harness.replacementWidget.destroy()
+        harness.drain(harness.statusPayload({}))
+      }
+
+      else if (s >= 224) {
         // The count is printed so tests/run can tell "every check passed" from
         // "no check ran": a qml that exits 0 without executing the harness, or a
         // step loop that stops early, both used to read as success.

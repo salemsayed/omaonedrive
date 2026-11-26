@@ -47,6 +47,11 @@ the worst-of-N rules, `tests/Discovery.test.js` covers reconciling discovery
 results without churning delegates, and `tests/Notifications.test.js` covers
 grouping a burst of events into one notification.
 
+The harness also binds two widget stand-ins to one service, one under a
+replacement bar whose `serviceFor()` is null, and checks one poll and one
+notification, and that the second widget follows the service through
+`ServiceLink.js` across a reload.
+
 ## Multiple accounts, by hand
 
 With a plain `onedrive.service` only, the panel must be pixel-identical to the
@@ -115,6 +120,11 @@ Check each state and control:
     one row; errors resolved by a later sync show as recovered.
 17. A failed storage check older than five minutes is retried once on open;
     Verify sync never is.
+18. With two monitors: each notification arrives once; `open`, `toggle` and
+    a notification click open the panel on the focused monitor; both panels
+    show the same selected account; the journal has no "Handler was
+    registered but will not be used" line for this target. Repeat under a
+    replacement bar.
 
 Use a disposable Microsoft account for live tests.
 

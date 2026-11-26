@@ -2,15 +2,17 @@
   "schemaVersion": 1,
   "id": "io.github.salemsayed.omaonedrive",
   "name": "OmaOneDrive",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "author": "Salem Sayed",
   "license": "MIT",
   "description": "OneDrive status, timed pause controls, cloud storage, and recent sync activity in the Omarchy bar, for one account or several.",
   "kinds": [
-    "bar-widget"
+    "bar-widget",
+    "service"
   ],
   "entryPoints": {
-    "barWidget": "BarWidget.qml"
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
   },
   "barWidget": {
     "displayName": "OmaOneDrive",

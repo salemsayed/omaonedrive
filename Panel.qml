@@ -16,7 +16,9 @@ Panel {
   property bool cursorActive: false
   property var cursorItem: null
   readonly property var barIdentity: hostWidget || root
-  property alias service: oneDrive
+  // The shell's one Service, set by BarWidget.qml before any binding here runs.
+  property var service: null
+  readonly property var oneDrive: service
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -105,9 +107,11 @@ Panel {
     })
   }
 
-  function open(accountTarget) {
+  function open() {
     root.controller.show()
-    var fromNotification = typeof accountTarget === "string" && accountTarget !== ""
+    // Set by a notification click while the shell opens this panel.
+    var accountTarget = oneDrive.openTarget
+    var fromNotification = accountTarget !== ""
     if (fromNotification) oneDrive.openFromNotification(accountTarget)
     else oneDrive.selectBadgedAccount()
     oneDrive.refreshSelected()
@@ -170,11 +174,6 @@ Panel {
     oneDrive.selectAccount(service)
     if (panelScroll) panelScroll.contentY = 0
     ensureCursor()
-  }
-
-  Service {
-    id: oneDrive
-    settings: root.settings
   }
 
   Connections {

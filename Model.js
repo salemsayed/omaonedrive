@@ -772,10 +772,9 @@ function cloudDecision(busy, queue, service, mode, active) {
 // Returns { updates: [{index,row}], appends: [row], removes: [index desc] }.
 // --- the IPC account surface -------------------------------------------------
 //
-// These two live here rather than inline in BarWidget.qml because that file
-// cannot be instantiated headless -- it derives from the bar's own BarWidget
-// type -- so logic left inside it is unreachable by any test. Both functions
-// were previously deletable outright without a single assertion failing.
+// These two live here rather than inline in Service.qml's IPC handler so the
+// node suite can table-test them without Qt. Both functions were previously
+// deletable outright without a single assertion failing.
 
 // One row per account, in discovery order, for `omarchy-cmd ... accounts`.
 function accountRows(accounts, selectedService) {

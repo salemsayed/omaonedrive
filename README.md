@@ -144,6 +144,11 @@ omarchy-shell io.github.salemsayed.omaonedrive pause     # pauseFor 60, resume
 omarchy-shell io.github.salemsayed.omaonedrive folder
 ```
 
+With several monitors there is still one poll schedule, one account selection
+and one notification per event, under the built-in bar and replacement bars
+alike. `open`, `toggle` and `close` act on the focused monitor's panel, like
+Omarchy's own panel hotkeys.
+
 The `pause`, `pauseFor`, `resume`, and `toggleSync` replies report whether the
 control was accepted. `ok` means it started; `busy` means a refresh or another
 control is still running, so retry after it finishes. This can happen immediately

@@ -29,6 +29,7 @@ function occurrences(text, needle) {
 const root = path.join(__dirname, "..")
 const barWidget = readFileSync(path.join(root, "BarWidget.qml"), "utf8")
 const panel = readFileSync(path.join(root, "Panel.qml"), "utf8")
+const serviceSource = readFileSync(path.join(root, "Service.qml"), "utf8")
 
 // Comments are stripped so wording changes do not break the test; everything
 // else -- including an added `if (false)` or an early return -- does.
@@ -83,39 +84,40 @@ test("the aggregate comes from the service, with a checking placeholder", () => 
 
 test("the IPC account handlers delegate and do nothing else", () => {
   assert.equal(
-    code(barWidget, "function accounts(): string", "function selectAccount(target: string)"),
-    'function accounts(): string { if (!root.service) return "[]" ' +
-    'return JSON.stringify(Model.accountRows(root.service.accounts, root.service.selectedService)) }')
+    code(serviceSource, "function accounts(): string", "function selectAccount(target: string)"),
+    'function accounts(): string { ' +
+    'return JSON.stringify(Model.accountRows(root.accounts, root.selectedService)) }')
   assert.equal(
-    code(barWidget, "function selectAccount(target: string)", "function openAccount"),
-    'function selectAccount(target: string): string { if (!root.service) return "no accounts" ' +
-    'var found = Model.resolveAccountTarget(root.service.accounts, target) ' +
+    code(serviceSource, "function selectAccount(target: string)", "function openAccount(target: string)"),
+    'function selectAccount(target: string): string { ' +
+    'var found = Model.resolveAccountTarget(root.accounts, target) ' +
     'if (found === "") return "unknown account: " + target ' +
     // false: automation must not inherit the panel's stale-quota retry, which
     // contacts Microsoft.
-    'root.service.selectAccount(found, false) return "ok" }')
+    'root.selectAccount(found, false) return "ok" }')
   // The notification click handlers: the daemon delivers a click as a fresh
   // `omarchy-shell <target> openAccount|repairAccount <service>` invocation,
-  // so these two ARE the click behaviour. Substance lives in Service.qml where
-  // the harness drives it; here only the delegation is pinned.
+  // so these two ARE the click behaviour. Substance lives in the Service
+  // functions the harness drives; here only the delegation is pinned.
   assert.equal(
-    code(barWidget, "function openAccount(target: string)", "function repairAccount"),
+    code(serviceSource, "function openAccount(target: string)", "function repairAccount"),
     'function openAccount(target: string): string ' +
-    // Open first: Panel.open()'s selectBadgedAccount may move the selection,
-    // and the popup's account is the user's explicit choice -- it lands last.
-    '{ root.open(target) return "ok" }')
+    // The panel takes the account as it opens, so Panel.open()'s
+    // selectBadgedAccount does not run for a popup's account.
+    '{ root.openPanel(target) return "ok" }')
   assert.equal(
-    code(barWidget, "function repairAccount(target: string)", "\n  }\n\n  BarIconButton"),
+    code(serviceSource, "function repairAccount(target: string)", "\n  }\n\n  ListModel"),
     'function repairAccount(target: string): string ' +
-    '{ if (root.service) root.service.repairFromNotification(target) return "ok" }')
+    '{ root.repairFromNotification(target) return "ok" }')
 })
 
 test("opening the panel selects the badged account first, then refreshes", () => {
   // Order matters: the panel's bindings and its refresh both read the selection.
   assert.equal(
-    code(panel, "function open(accountTarget) {", "Qt.callLater"),
-    'function open(accountTarget) { root.controller.show() ' +
-    'var fromNotification = typeof accountTarget === "string" && accountTarget !== "" ' +
+    code(panel, "function open() {", "Qt.callLater"),
+    'function open() { root.controller.show() ' +
+    'var accountTarget = oneDrive.openTarget ' +
+    'var fromNotification = accountTarget !== "" ' +
     'if (fromNotification) oneDrive.openFromNotification(accountTarget) ' +
     'else oneDrive.selectBadgedAccount() oneDrive.refreshSelected() ' +
     'if (!fromNotification) oneDrive.retryStaleQuotaOnOpen()')
@@ -126,35 +128,35 @@ test("every IPC control routes to the coordinator, and none of them to another o
   // green: only five hand-picked regions were pinned, and this was not one. The
   // fix is to pin the WHOLE handler -- fourteen one-line delegations, each of
   // which is a command a script can run against the user's real account.
-  const handler = code(barWidget, "IpcHandler {", "\n  }\n\n  BarIconButton")
+  const handler = code(serviceSource, "IpcHandler {", "\n  }\n\n  ListModel")
   assert.equal(handler,
-    'IpcHandler { enabled: root.ipcRegistrationReady target: root.moduleName ' +
-    'function open(): void { root.open() } ' +
-    'function close(): void { root.close() } ' +
-    'function show(): void { root.open() } ' +
-    'function hide(): void { root.close() } ' +
-    'function toggle(): void { root.togglePanel() } ' +
-    'function refresh(): string { if (root.service) root.service.refresh(false) return "ok" } ' +
-    'function check(): string { if (root.service) root.service.checkQuota() return "ok" } ' +
-    'function fullStatus(): string { if (root.service) root.service.checkFullStatus() return "ok" } ' +
-    'function pause(): string { return root.service ? root.service.pause() : "no accounts" } ' +
-    'function pauseFor(minutes: int): string { return root.service ? root.service.pauseFor(minutes) : "no accounts" } ' +
-    'function resume(): string { return root.service ? root.service.resume() : "no accounts" } ' +
-    'function toggleSync(): string { return root.service ? root.service.toggleRunning() : "no accounts" } ' +
-    'function folder(): string { if (root.service) root.service.openFolder() return "ok" } ' +
-    'function web(): string { if (root.service) root.service.openWeb() return "ok" } ' +
-    'function resync(): string { if (root.service) root.service.repairResync() return "ok" } ' +
-    'function status(): string { return root.service ? root.service.statusText : "Checking…" } ' +
-    'function accounts(): string { if (!root.service) return "[]" ' +
-    'return JSON.stringify(Model.accountRows(root.service.accounts, root.service.selectedService)) } ' +
-    'function selectAccount(target: string): string { if (!root.service) return "no accounts" ' +
-    'var found = Model.resolveAccountTarget(root.service.accounts, target) ' +
+    'IpcHandler { target: Commands.IPC_TARGET ' +
+    'function open(): void { root.openPanel("") } ' +
+    'function close(): void { root.shell.hide(Commands.IPC_TARGET) } ' +
+    'function show(): void { root.openPanel("") } ' +
+    'function hide(): void { root.shell.hide(Commands.IPC_TARGET) } ' +
+    'function toggle(): void { root.shell.toggle(Commands.IPC_TARGET) } ' +
+    'function refresh(): string { root.refresh(false) return "ok" } ' +
+    'function check(): string { root.checkQuota() return "ok" } ' +
+    'function fullStatus(): string { root.checkFullStatus() return "ok" } ' +
+    'function pause(): string { return root.pause() } ' +
+    'function pauseFor(minutes: int): string { return root.pauseFor(minutes) } ' +
+    'function resume(): string { return root.resume() } ' +
+    'function toggleSync(): string { return root.toggleRunning() } ' +
+    'function folder(): string { root.openFolder() return "ok" } ' +
+    'function web(): string { root.openWeb() return "ok" } ' +
+    'function resync(): string { root.repairResync() return "ok" } ' +
+    'function status(): string { return root.statusText } ' +
+    'function accounts(): string { ' +
+    'return JSON.stringify(Model.accountRows(root.accounts, root.selectedService)) } ' +
+    'function selectAccount(target: string): string { ' +
+    'var found = Model.resolveAccountTarget(root.accounts, target) ' +
     'if (found === "") return "unknown account: " + target ' +
-    'root.service.selectAccount(found, false) return "ok" } ' +
+    'root.selectAccount(found, false) return "ok" } ' +
     'function openAccount(target: string): string ' +
-    '{ root.open(target) return "ok" } ' +
+    '{ root.openPanel(target) return "ok" } ' +
     'function repairAccount(target: string): string ' +
-    '{ if (root.service) root.service.repairFromNotification(target) return "ok" }')
+    '{ root.repairFromNotification(target) return "ok" }')
 })
 
 test("a composed notification reaches Commands.notify with its own account", () => {
@@ -178,7 +180,8 @@ test("a composed notification reaches Commands.notify with its own account", () 
 
 test("the notification exec target and the IPC registration are the same name", () => {
   // Commands.js bakes the omarchy-shell target into every notification's exec
-  // hint; BarWidget.qml registers the IpcHandler under moduleName. If they ever
+  // hint, Service.qml registers the IpcHandler and summons the panel under it,
+  // and the shell finds that panel by BarWidget.qml's moduleName. If they ever
   // drift, every notification click silently reaches nothing.
   const commands = readFileSync(path.join(root, "Commands.js"), "utf8")
   const constant = commands.match(/var IPC_TARGET = "([^"]+)"/)
@@ -214,6 +217,19 @@ test("no surface renders helper or file data as rich text", () => {
   const service = readFileSync(path.join(root, "Service.qml"), "utf8")
   assert.match(service, /readonly property string clickHelperPath: Model\.filePath\(/)
 
+})
+
+test("a widget pushes only the settings its bar gave it, never the bar type's empty default", () => {
+  assert.match(barWidget, /^  moduleName: "io\.github\.salemsayed\.omaonedrive"\n  settings: null\n/m)
+  assert.equal(
+    code(barWidget, "function pushSettings()", "function loadPanel()"),
+    "function pushSettings() { if (root.service && root.settings) root.service.settings = root.settings }")
+})
+
+test("the widget asks the shell for its service, and ServiceLink.js only when the shell has none", () => {
+  assert.equal(
+    code(barWidget, "readonly property var service:", "function followServiceLink()"),
+    "readonly property var service: (bar && bar.shell ? bar.shell.serviceFor(moduleName) : null) || linkedService")
 })
 
 test("release metadata stays synchronized", () => {

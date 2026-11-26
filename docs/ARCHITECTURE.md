@@ -1,9 +1,31 @@
 # Architecture
 
-`manifest.json` declares one third-party Omarchy `bar-widget` with the stable id
-`io.github.salemsayed.omaonedrive`. `BarWidget.qml` owns the bar icon and loads
-`Panel.qml`, which follows Omarchy's native popup ownership, keyboard, theme,
-and panel-switch contracts.
+`manifest.json` declares a third-party Omarchy `bar-widget` and `service` with
+the stable id `io.github.salemsayed.omaonedrive`. The shell creates
+`Service.qml` once, while the bar draws `BarWidget.qml` once per monitor. Each
+widget owns its bar icon, pushes its bar settings into the service (one bar
+entry, so the last push wins), and loads `Panel.qml` bound to the service; the
+panel follows Omarchy's native popup ownership, keyboard, theme, and
+panel-switch contracts and keeps only its open state, scroll and cursor. A
+widget pushes only settings the bar has handed it, never the bar type's empty
+default, and the service neither polls nor notifies until the first push, so
+it never acts on defaults the user may have changed. The widgets carry the
+settings rather than the shell facade's bar config because that copy can lag
+one change behind an edit of `shell.json`.
+
+A widget finds the service with `bar.shell.serviceFor()`. A replacement bar's
+facade returns null there, so the service also registers in `ServiceLink.js`, a
+`.pragma library` script shared by every file that imports it, which notifies
+widgets when a service registers or goes away. The registry is only the
+fallback: whenever `serviceFor()` answers, the widget uses that. Omarchy keeps
+plugin services away from replacement bars on purpose, so that a bar cannot
+take another plugin's live service; the registry sidesteps that for this
+plugin, and any QML in the shell that imports it by path can reach the service.
+It goes unused under the built-in bar, and would under replacement bars too if
+Omarchy's facade for a replacement bar's widget returned that widget's own
+service. The service owns the IPC target; panel calls go through the shell's
+`summon`, `hide` and `toggle`, which pick the focused monitor's widget. A
+notification's account waits in `openTarget` while the panel opens.
 
 `Service.qml` is the coordinator and `Account.qml` is the asynchronous boundary
 between QML and the operating system. One `Account` exists per discovered
@@ -149,8 +171,8 @@ top-level `status-cache.json` and `status.lock`. Every such directory is mode
 `0700` and every cache and lock inside it is mode `0600`. Failed or timed-out
 cloud queries retain the last successful result and are reported separately from
 each other and from local service failures. Each account's own file lock
-serializes multiple monitor/widget instances for that account, so one account's
-cloud check cannot block another account's refresh.
+serializes every helper run for that account, whichever process starts it, so
+one account's cloud check cannot block another account's refresh.
 
 No refresh-token content, Microsoft response URL, access token, browser state,
 or synced-file content crosses the helper boundary; the only additional data

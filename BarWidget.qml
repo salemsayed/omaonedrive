@@ -1,18 +1,24 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+import "ServiceLink.js" as ServiceLink
 
 BarWidget {
   id: root
   moduleName: "io.github.salemsayed.omaonedrive"
-  // Moving a bar widget briefly overlaps its old and replacement instances.
-  // Wait for the retired slot to release this process-wide IPC target.
-  property bool ipcRegistrationReady: false
+  settings: null
 
-  readonly property var service: panelLoader.item ? panelLoader.item.service : null
+  // The one Service the shell creates for every monitor's widget. The built-in
+  // bar's facade returns it from serviceFor(); under a replacement bar that is
+  // null and ServiceLink.js answers, telling this widget when a Service loads,
+  // reloads or goes away. Null until one exists: the icon shows the checking
+  // state and no panel is loaded.
+  property var linkedService: ServiceLink.current()
+  readonly property var service: (bar && bar.shell ? bar.shell.serviceFor(moduleName) : null)
+    || linkedService
+  function followServiceLink() { root.linkedService = ServiceLink.current() }
 
   // Worst of N. With one account this resolves to exactly the state the old
   // flat ternary produced; the mapping and the precedence are table-tested in
@@ -54,9 +60,24 @@ BarWidget {
     if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
+    if ("service" in target) target.service = root.service
   }
 
-  function open(accountTarget) { if (panelLoader.item) panelLoader.item.open(accountTarget) }
+  // A service gets no bar settings, so each widget pushes its entry's. Every
+  // monitor draws the same entry, so the last push wins.
+  function pushSettings() {
+    if (root.service && root.settings) root.service.settings = root.settings
+  }
+
+  // The panel is created with the service already set, so none of its bindings
+  // reads a null one, and is unloaded when the service goes away.
+  function loadPanel() {
+    if (!root.service) panelLoader.source = ""
+    else if (panelLoader.item) root.injectPanel()
+    else panelLoader.setSource(Qt.resolvedUrl("Panel.qml"), { service: root.service })
+  }
+
+  function open() { if (panelLoader.item) panelLoader.item.open() }
   function close() { if (panelLoader.item) panelLoader.item.close() }
   function togglePanel() { if (panelLoader.item) panelLoader.item.toggle() }
   function closeForPopoutSwitch() {
@@ -68,100 +89,28 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   onBarChanged: injectPanel()
-  onSettingsChanged: injectPanel()
-  Component.onCompleted: ipcRegistrationTimer.start()
-
-  Timer {
-    id: ipcRegistrationTimer
-    interval: 100
-    onTriggered: root.ipcRegistrationReady = true
+  onSettingsChanged: {
+    pushSettings()
+    injectPanel()
   }
+  onServiceChanged: {
+    pushSettings()
+    loadPanel()
+  }
+  Component.onCompleted: {
+    ServiceLink.subscribe(followServiceLink)
+    pushSettings()
+    loadPanel()
+  }
+  Component.onDestruction: ServiceLink.unsubscribe(followServiceLink)
 
   Loader {
     id: panelLoader
     active: true
-    source: Qt.resolvedUrl("Panel.qml")
     visible: false
     onLoaded: {
       root.injectPanel()
       Qt.callLater(root.injectPanel)
-    }
-  }
-
-  IpcHandler {
-    enabled: root.ipcRegistrationReady
-    target: root.moduleName
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.togglePanel() }
-    function refresh(): string {
-      if (root.service) root.service.refresh(false)
-      return "ok"
-    }
-    function check(): string {
-      if (root.service) root.service.checkQuota()
-      return "ok"
-    }
-    function fullStatus(): string {
-      if (root.service) root.service.checkFullStatus()
-      return "ok"
-    }
-    function pause(): string {
-      return root.service ? root.service.pause() : "no accounts"
-    }
-    function pauseFor(minutes: int): string {
-      return root.service ? root.service.pauseFor(minutes) : "no accounts"
-    }
-    function resume(): string {
-      return root.service ? root.service.resume() : "no accounts"
-    }
-    function toggleSync(): string {
-      return root.service ? root.service.toggleRunning() : "no accounts"
-    }
-    function folder(): string {
-      if (root.service) root.service.openFolder()
-      return "ok"
-    }
-    function web(): string {
-      if (root.service) root.service.openWeb()
-      return "ok"
-    }
-    function resync(): string {
-      if (root.service) root.service.repairResync()
-      return "ok"
-    }
-    function status(): string { return root.service ? root.service.statusText : "Checking…" }
-    // Enumerate and select, so automation can reach a non-default account before
-    // invoking any of the controls above -- which all act on the selected one.
-    // Both bodies live in Model.js: this file cannot be instantiated headless,
-    // so anything inline here is untestable.
-    function accounts(): string {
-      if (!root.service) return "[]"
-      return JSON.stringify(Model.accountRows(root.service.accounts, root.service.selectedService))
-    }
-    function selectAccount(target: string): string {
-      if (!root.service) return "no accounts"
-      var found = Model.resolveAccountTarget(root.service.accounts, target)
-      if (found === "") return "unknown account: " + target
-      // false: automation selecting an account merely to target a control must
-      // not trigger the panel's stale-quota retry, which contacts Microsoft.
-      root.service.selectAccount(found, false)
-      return "ok"
-    }
-    // Notification clicks land here: the daemon persists the popup's --exec
-    // hint and runs `omarchy-shell <target> openAccount <service>` on click,
-    // which works even after this process has been reloaded. Behaviour lives
-    // in Service.qml so the harness can drive it.
-    function openAccount(target: string): string {
-      // The panel selects the target before any account refresh or quota retry.
-      root.open(target)
-      return "ok"
-    }
-    function repairAccount(target: string): string {
-      if (root.service) root.service.repairFromNotification(target)
-      return "ok"
     }
   }
 

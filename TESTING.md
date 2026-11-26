@@ -50,7 +50,9 @@ grouping a burst of events into one notification.
 The harness also binds two widget stand-ins to one service, one under a
 replacement bar whose `serviceFor()` is null, and checks one poll and one
 notification, and that the second widget follows the service through
-`ServiceLink.js` across a reload.
+`ServiceLink.js` across a reload. It also checks that a service no widget has
+pushed settings to neither polls nor notifies, and that it starts on the
+pushed settings.
 
 ## Multiple accounts, by hand
 

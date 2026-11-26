@@ -183,6 +183,10 @@ Item {
   property var builtinWidget: null
   property var replacementWidget: null
   property var reloadedService: null
+  property var unconfigured: null
+  function unsetNotifications() {
+    return harness.notifySent().filter(function(sent) { return sent.indexOf("unset") !== -1 })
+  }
 
   property int step: 0
   property var firstObjects: []
@@ -2543,7 +2547,43 @@ Item {
         harness.drain(harness.statusPayload({}))
       }
 
-      else if (s >= 224) {
+      else if (s === 224) {
+        console.log("a service waits for a widget to push its bar entry's settings")
+        Quickshell.detached = []
+        harness.unconfigured = serviceComponent.createObject(harness)
+        harness.unconfigured.applyDiscovery([
+          { service: "onedrive@unset.service", instance: "unset", confdir: "/c/unset", description: "unset" }
+        ])
+      }
+
+      else if (s === 225) {
+        harness.check(harness.runningStatusServices().indexOf("onedrive@unset.service") === -1,
+          "a service no widget has pushed settings to starts no status poll")
+        harness.unconfigured.accounts[0].refresh(false)
+        harness.finishStatus("onedrive@unset.service", harness.statusPayload({
+          confdir: "/c/unset", serviceFailed: true }))
+        harness.unconfigured.flushTransitions()
+        harness.check(harness.unsetNotifications().length === 0,
+          "...and sends no notification, even for a failure it was asked to look at: "
+            + JSON.stringify(harness.unsetNotifications()))
+        harness.unconfigured.settings = ({ notifications: true, refreshIntervalSec: 20 })
+      }
+
+      else if (s === 226) {
+        harness.check(harness.unconfigured.refreshIntervalSec === 20
+            && harness.runningStatusServices().indexOf("onedrive@unset.service") !== -1,
+          "polling starts once a widget pushes the entry's settings, at their interval")
+        harness.finishStatus("onedrive@unset.service", harness.statusPayload({
+          confdir: "/c/unset", serviceFailed: true, reauthRequired: true }))
+        harness.unconfigured.flushTransitions()
+        var reauth = harness.unsetNotifications()
+        harness.check(reauth.length === 1 && reauth[0].indexOf("reauthentication") !== -1,
+          "...and so do its notifications: " + JSON.stringify(reauth))
+        harness.unconfigured.destroy()
+        harness.drain(harness.statusPayload({}))
+      }
+
+      else if (s >= 227) {
         // The count is printed so tests/run can tell "every check passed" from
         // "no check ran": a qml that exits 0 without executing the harness, or a
         // step loop that stops early, both used to read as success.

@@ -219,6 +219,13 @@ test("no surface renders helper or file data as rich text", () => {
 
 })
 
+test("a widget pushes only the settings its bar gave it, never the bar type's empty default", () => {
+  assert.match(barWidget, /^  moduleName: "io\.github\.salemsayed\.omaonedrive"\n  settings: null\n/m)
+  assert.equal(
+    code(barWidget, "function pushSettings()", "function loadPanel()"),
+    "function pushSettings() { if (root.service && root.settings) root.service.settings = root.settings }")
+})
+
 test("release metadata stays synchronized", () => {
   // Verbatim from upstream 1.5.5: the manifest version must have a dated
   // changelog entry.

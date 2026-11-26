@@ -8,6 +8,7 @@ import "ServiceLink.js" as ServiceLink
 BarWidget {
   id: root
   moduleName: "io.github.salemsayed.omaonedrive"
+  settings: null
 
   // The one Service the shell creates for every monitor's widget. The built-in
   // bar's facade returns it from serviceFor(); under a replacement bar that is
@@ -65,7 +66,7 @@ BarWidget {
   // A service gets no bar settings, so each widget pushes its entry's. Every
   // monitor draws the same entry, so the last push wins.
   function pushSettings() {
-    if (root.service) root.service.settings = root.settings
+    if (root.service && root.settings) root.service.settings = root.settings
   }
 
   // The panel is created with the service already set, so none of its bindings

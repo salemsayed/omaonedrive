@@ -6,7 +6,12 @@ the stable id `io.github.salemsayed.omaonedrive`. The shell creates
 widget owns its bar icon, pushes its bar settings into the service (one bar
 entry, so the last push wins), and loads `Panel.qml` bound to the service; the
 panel follows Omarchy's native popup ownership, keyboard, theme, and
-panel-switch contracts and keeps only its open state, scroll and cursor.
+panel-switch contracts and keeps only its open state, scroll and cursor. A
+widget pushes only settings the bar has handed it, never the bar type's empty
+default, and the service neither polls nor notifies until the first push, so
+it never acts on defaults the user may have changed. The widgets carry the
+settings rather than the shell facade's bar config because that copy can lag
+one change behind an edit of `shell.json`.
 
 A widget finds the service with `bar.shell.serviceFor()`. A replacement bar's
 facade returns null there, so the service also registers in `ServiceLink.js`, a

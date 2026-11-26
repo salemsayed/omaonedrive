@@ -23,7 +23,8 @@ Item {
   property var shell: null
 
   // Pushed by every monitor's bar widget; see BarWidget.pushSettings().
-  property var settings: ({})
+  property var settings: null
+  readonly property bool configured: settings !== null && settings !== undefined
 
   property var _accountObjects: []
   property int _aggregateRevision: 0
@@ -56,6 +57,7 @@ Item {
   }
 
   readonly property bool notificationsEnabled: {
+    if (!configured) return false
     var value = setting("notifications", true)
     return value === true || String(value).toLowerCase() === "true"
   }
@@ -664,7 +666,7 @@ Item {
     id: pollScheduler
     interval: Math.max(1000, Math.round(root.refreshIntervalSec * 1000 / Math.max(1, root.accountCount)))
     repeat: true
-    running: true
+    running: root.configured
     triggeredOnStart: true
     onTriggered: root.pollNextAccount()
   }
@@ -683,7 +685,8 @@ Item {
     // would leave the rest without ramp coverage, and not forever, which is what
     // an always-failing helper would otherwise get. The old widget capped its
     // ramp at 15 ticks; so does this.
-    running: root.accountCount > 0 && !root.allAttempted && ticks < 15 * Math.max(1, root.accountCount)
+    running: root.configured && root.accountCount > 0 && !root.allAttempted
+      && ticks < 15 * Math.max(1, root.accountCount)
     onTriggered: {
       ticks += 1
       root.pollNextAccount()
